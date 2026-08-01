@@ -44,6 +44,10 @@ paths:
                 $ref: '#/components/schemas/ScoreTransactionResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
@@ -75,6 +79,10 @@ paths:
                   $ref: '#/components/schemas/ScoreTransactionResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
@@ -138,6 +146,10 @@ components:
   responses:
     BadRequest:
       $ref: './shared/errors.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './shared/errors.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './shared/errors.yaml#/Forbidden'
     UnprocessableEntity:
       $ref: './shared/errors.yaml#/UnprocessableEntity'
     InternalServerError:

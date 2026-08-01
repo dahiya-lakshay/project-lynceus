@@ -40,6 +40,10 @@ paths:
                 $ref: '#/components/schemas/DashboardOverview'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -74,6 +78,10 @@ paths:
                 $ref: '#/components/schemas/RecentTransactionsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -93,6 +101,10 @@ paths:
                 $ref: '#/components/schemas/FraudDistributionResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -114,6 +126,10 @@ paths:
                   $ref: '#/components/schemas/RiskBreakdownEntry'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -135,6 +151,10 @@ paths:
                   $ref: '#/components/schemas/TimelinePoint'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -281,5 +301,9 @@ components:
   responses:
     BadRequest:
       $ref: './shared/errors.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './shared/errors.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './shared/errors.yaml#/Forbidden'
     InternalServerError:
       $ref: './shared/errors.yaml#/InternalServerError'
