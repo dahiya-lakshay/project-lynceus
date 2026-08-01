@@ -1,0 +1,285 @@
+# OpenAPI 3.1 contract for the Dashboard BFF (Java / Spring Boot).
+# This spec is the source of truth for services/dashboard-bff — written
+# before any implementation code exists, per AGENTS.md's API-First Design
+# principle. The BFF aggregates data from the Transaction Service and
+# fraud-scoring results to serve dashboard views; it does not own any
+# primary data itself.
+openapi: 3.1.0
+info:
+  title: Lynceus Dashboard BFF API
+  version: 0.1.0
+  description: >-
+    Backend-for-frontend aggregating transaction and fraud-scoring data for
+    the tenant-facing fraud analyst dashboard. Every request is scoped to a
+    single tenant via the X-Tenant-Id header.
+servers:
+  - url: http://localhost:8083
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Dashboard
+    description: Aggregated views for the fraud analyst dashboard.
+
+paths:
+  /api/v1/dashboard/overview:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardOverview
+      summary: Summary KPIs for the tenant's transaction and fraud activity.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: Dashboard overview KPIs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardOverview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/transactions/recent:
+    get:
+      tags: [Dashboard]
+      operationId: getRecentTransactions
+      summary: Paginated list of the tenant's most recent transactions with fraud scores.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated list of recent transactions, most recent first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentTransactionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/fraud-distribution:
+    get:
+      tags: [Dashboard]
+      operationId: getFraudDistribution
+      summary: Histogram of ensemble fraud scores across ten 0.1-wide buckets.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: Fraud score distribution buckets, ordered 0.0-0.1 through 0.9-1.0.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FraudDistributionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/risk-breakdown:
+    get:
+      tags: [Dashboard]
+      operationId: getRiskBreakdown
+      summary: Count of transactions per risk level.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: Transaction counts grouped by risk level.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RiskBreakdownEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/dashboard/timeline:
+    get:
+      tags: [Dashboard]
+      operationId: getScoreTimeline
+      summary: Average fraud score over time.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: Time series of average ensemble fraud score.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimelinePoint'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        JWT issued by Keycloak. NGINX validates the token at the gateway
+        before forwarding the request; services trust the tenant_id and
+        role claims already present on the token.
+
+  parameters:
+    TenantIdHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: Identifier of the tenant making the request.
+      schema:
+        type: string
+
+  schemas:
+    Transaction:
+      $ref: './shared/schemas/transaction.yaml#/Transaction'
+    ErrorResponse:
+      $ref: './shared/errors.yaml#/ErrorResponse'
+
+    DashboardOverview:
+      type: object
+      description: Top-line KPIs shown on the dashboard landing view.
+      required:
+        - total_transactions
+        - fraud_rate
+        - average_score
+        - flagged_count
+        - total_amount_processed
+      properties:
+        total_transactions:
+          type: integer
+          minimum: 0
+          description: Total number of transactions recorded for the tenant.
+        fraud_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fraction of transactions classified as high or critical risk.
+        average_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Mean ensemble fraud score across scored transactions.
+        flagged_count:
+          type: integer
+          minimum: 0
+          description: Number of transactions flagged as high or critical risk.
+        total_amount_processed:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Sum of transaction amounts processed for the tenant.
+
+    RecentTransactionsResponse:
+      type: object
+      description: Paginated list of full transaction records, including fraud scores.
+      required:
+        - items
+        - total
+        - page
+        - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+
+    FraudDistributionBucket:
+      type: object
+      description: Count of transactions whose ensemble score falls within a fixed 0.1-wide range.
+      required:
+        - range
+        - count
+      properties:
+        range:
+          type: string
+          description: Inclusive-lower, exclusive-upper score range, e.g. "0.0-0.1".
+          example: 0.0-0.1
+        count:
+          type: integer
+          minimum: 0
+
+    FraudDistributionResponse:
+      type: object
+      description: Full histogram of ten 0.1-wide fraud score buckets spanning 0.0 to 1.0.
+      required:
+        - buckets
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/FraudDistributionBucket'
+
+    RiskBreakdownEntry:
+      type: object
+      required:
+        - risk_level
+        - count
+      properties:
+        risk_level:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+            - critical
+        count:
+          type: integer
+          minimum: 0
+
+    TimelinePoint:
+      type: object
+      required:
+        - timestamp
+        - average_score
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        average_score:
+          type: number
+          minimum: 0
+          maximum: 1
+
+  responses:
+    BadRequest:
+      $ref: './shared/errors.yaml#/BadRequest'
+    InternalServerError:
+      $ref: './shared/errors.yaml#/InternalServerError'
