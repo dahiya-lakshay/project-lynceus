@@ -1,0 +1,59 @@
+# === Java ===
+*.class
+*.jar
+*.war
+*.ear
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+out/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+.eggs/
+*.egg
+.venv/
+venv/
+
+# === Node / Frontend ===
+node_modules/
+.next/
+.turbo/
+out/
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# === Environment ===
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# === Docker ===
+docker-compose.override.yml
+
+# === ML ===
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+mlruns/
+mlartifacts/
+
+# === Misc ===
+*.log
+tmp/
+coverage/
+.coverage
+htmlcov/
