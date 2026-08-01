@@ -1,0 +1,234 @@
+# Reusable transaction schema components shared across all Phase 1 service
+# specs (transaction-api, inference-api, dashboard-bff-api). Each top-level
+# key here is a plain named JSON Schema object that individual spec files
+# pull in via `$ref: './shared/schemas/transaction.yaml#/<SchemaName>'` under
+# their own `components.schemas` map. Keeping these as bare, unwrapped schema
+# objects (rather than nesting under `components.schemas` in this file) lets
+# Redocly/OpenAPI tooling resolve fragment refs without needing a synthetic
+# root document per shared file.
+
+Transaction:
+  type: object
+  description: >-
+    A single financial transaction as persisted by the Transaction Service,
+    including fraud scoring results once the inference pipeline has scored it.
+  required:
+    - id
+    - tenant_id
+    - customer_id
+    - amount
+    - currency
+    - merchant_name
+    - merchant_category
+    - is_online
+    - is_foreign
+    - channel
+    - created_at
+    - updated_at
+  properties:
+    id:
+      type: string
+      format: uuid
+      description: Unique transaction identifier.
+    tenant_id:
+      type: string
+      description: Identifier of the owning tenant (financial institution).
+    customer_id:
+      type: string
+      format: uuid
+      description: Identifier of the customer the transaction belongs to.
+    amount:
+      type: number
+      format: decimal
+      minimum: 0
+      description: Transaction amount in the given currency's minor-agnostic decimal form.
+    currency:
+      type: string
+      description: ISO 4217 currency code.
+      default: USD
+    merchant_name:
+      type: string
+      description: Name of the merchant as reported by the payment network.
+    merchant_category:
+      type: string
+      description: Merchant category classification used for feature engineering.
+      enum:
+        - grocery
+        - electronics
+        - gas_station
+        - restaurant
+        - online_shopping
+        - travel
+        - entertainment
+        - healthcare
+        - utilities
+        - clothing
+    is_online:
+      type: boolean
+      description: Whether the transaction was performed online (card-not-present).
+    is_foreign:
+      type: boolean
+      description: Whether the transaction originated outside the customer's home country.
+    channel:
+      type: string
+      description: Channel through which the transaction was initiated.
+      enum:
+        - online
+        - in_store
+        - atm
+        - mobile
+    metadata:
+      type: object
+      description: >-
+        Free-form passthrough attributes captured at ingestion time, persisted
+        as JSONB. Not validated against a fixed schema.
+      additionalProperties: true
+    risk_level:
+      description: >-
+        Risk tier assigned by the fraud scoring pipeline. Null until the
+        transaction has been scored.
+      type:
+        - string
+        - 'null'
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+        - null
+    fraud_score:
+      description: >-
+        Ensemble fraud probability in [0, 1] assigned by the fraud scoring
+        pipeline. Null until the transaction has been scored.
+      type:
+        - number
+        - 'null'
+      minimum: 0
+      maximum: 1
+    created_at:
+      type: string
+      format: date-time
+      description: Timestamp the transaction record was created.
+    updated_at:
+      type: string
+      format: date-time
+      description: Timestamp the transaction record was last updated.
+
+CreateTransactionRequest:
+  type: object
+  description: Payload required to ingest a new transaction.
+  required:
+    - customer_id
+    - amount
+    - merchant_name
+    - merchant_category
+    - is_online
+    - is_foreign
+    - channel
+  properties:
+    customer_id:
+      type: string
+      format: uuid
+      description: Identifier of the customer the transaction belongs to.
+    amount:
+      type: number
+      format: decimal
+      minimum: 0
+      description: Transaction amount in the given currency's minor-agnostic decimal form.
+    currency:
+      type: string
+      description: ISO 4217 currency code. Defaults to USD when omitted.
+      default: USD
+    merchant_name:
+      type: string
+      description: Name of the merchant as reported by the payment network.
+    merchant_category:
+      type: string
+      description: Merchant category classification used for feature engineering.
+      enum:
+        - grocery
+        - electronics
+        - gas_station
+        - restaurant
+        - online_shopping
+        - travel
+        - entertainment
+        - healthcare
+        - utilities
+        - clothing
+    is_online:
+      type: boolean
+      description: Whether the transaction was performed online (card-not-present).
+    is_foreign:
+      type: boolean
+      description: Whether the transaction originated outside the customer's home country.
+    channel:
+      type: string
+      description: Channel through which the transaction was initiated.
+      enum:
+        - online
+        - in_store
+        - atm
+        - mobile
+    metadata:
+      type: object
+      description: Optional free-form passthrough attributes persisted as JSONB.
+      additionalProperties: true
+
+TransactionSummary:
+  type: object
+  description: Lightweight transaction projection used in list/dashboard views.
+  required:
+    - id
+    - amount
+    - merchant_name
+    - created_at
+  properties:
+    id:
+      type: string
+      format: uuid
+    amount:
+      type: number
+      format: decimal
+      minimum: 0
+    merchant_name:
+      type: string
+    risk_level:
+      type:
+        - string
+        - 'null'
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+        - null
+    created_at:
+      type: string
+      format: date-time
+
+TransactionListResponse:
+  type: object
+  description: Paginated list of transaction summaries.
+  required:
+    - items
+    - total
+    - page
+    - page_size
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/TransactionSummary'
+    total:
+      type: integer
+      minimum: 0
+      description: Total number of transactions matching the query, across all pages.
+    page:
+      type: integer
+      minimum: 1
+      description: Current page number (1-indexed).
+    page_size:
+      type: integer
+      minimum: 1
+      description: Number of items per page.

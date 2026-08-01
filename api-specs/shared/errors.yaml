@@ -1,0 +1,85 @@
+# Shared error schema and reusable HTTP responses for all Phase 1 services.
+# The ErrorResponse shape and status-code usage mirror AGENTS.md's "Error
+# Handling" section exactly, so every service in this repo returns errors
+# in an identical, predictable format regardless of implementation language.
+#
+# Same bare-schema convention as api-specs/shared/schemas/*.yaml: this file's
+# top-level keys (ErrorResponse plus one entry per components.responses
+# code) are referenced directly via `$ref: './shared/errors.yaml#/<Key>'`
+# from each spec's own components.schemas / components.responses map.
+
+ErrorResponse:
+  type: object
+  required:
+    - error
+  properties:
+    error:
+      type: object
+      required:
+        - code
+        - message
+        - trace_id
+        - timestamp
+      properties:
+        code:
+          type: string
+          example: TRANSACTION_NOT_FOUND
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        trace_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+BadRequest:
+  description: Validation error — the request body or parameters were malformed.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
+
+Unauthorized:
+  description: The request did not include valid authentication credentials.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
+
+Forbidden:
+  description: The caller is authenticated but not authorized for this resource or tenant.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
+
+NotFound:
+  description: The requested resource does not exist.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
+
+UnprocessableEntity:
+  description: The request was syntactically valid but semantically invalid.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
+
+TooManyRequests:
+  description: The caller has exceeded the allowed request rate.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
+
+InternalServerError:
+  description: An unexpected error occurred. Stack traces are never exposed.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
