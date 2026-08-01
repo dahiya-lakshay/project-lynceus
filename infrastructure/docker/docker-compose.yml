@@ -1,0 +1,172 @@
+# Full-stack Docker Compose for Lynceus local development.
+# Brings up infrastructure (PostgreSQL, Redis) plus every application
+# service behind the NGINX gateway. Run via `make dev-all`.
+#
+# This file intentionally duplicates the infra service definitions from
+# docker-compose.infra.yml (rather than using `include`/`extends`) to keep
+# each compose file independently readable and runnable.
+#
+# Requires a `.env` file in this directory (copy from `.env.example`).
+
+services:
+  # ============================================
+  # INFRASTRUCTURE
+  # ============================================
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: lynceus-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - lynceus-pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lynceus-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: lynceus-redis
+    restart: unless-stopped
+    env_file: .env
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - lynceus-redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - lynceus-network
+
+  # ============================================
+  # APPLICATION SERVICES
+  # ============================================
+  transaction-service:
+    container_name: lynceus-transaction-service
+    build:
+      context: ../../services
+      dockerfile: transaction-service/Dockerfile
+    env_file: .env
+    ports:
+      - "${TXN_SERVICE_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - lynceus-network
+
+  inference-service:
+    container_name: lynceus-inference-service
+    build:
+      context: ../../ml-services/inference-service
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "${INFERENCE_SERVICE_PORT:-8082}:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/api/v1/scoring/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - lynceus-network
+
+  dashboard-bff:
+    container_name: lynceus-dashboard-bff
+    build:
+      context: ../../services
+      dockerfile: dashboard-bff/Dockerfile
+    env_file: .env
+    ports:
+      - "${BFF_SERVICE_PORT:-8083}:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - lynceus-network
+
+  frontend:
+    container_name: lynceus-frontend
+    build:
+      context: ../../frontend
+      dockerfile: apps/dashboard/Dockerfile
+    env_file: .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      dashboard-bff:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - lynceus-network
+
+  nginx:
+    container_name: lynceus-nginx
+    build:
+      context: ../nginx
+      dockerfile: Dockerfile
+    ports:
+      - "${NGINX_PORT:-8080}:8080"
+    depends_on:
+      transaction-service:
+        condition: service_healthy
+      dashboard-bff:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lynceus-network
+
+networks:
+  lynceus-network:
+    driver: bridge
+
+volumes:
+  lynceus-pgdata:
+  lynceus-redisdata:
