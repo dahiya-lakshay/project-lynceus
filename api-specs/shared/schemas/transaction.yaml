@@ -81,7 +81,10 @@ Transaction:
       type: object
       description: >-
         Free-form passthrough attributes captured at ingestion time, persisted
-        as JSONB. Not validated against a fixed schema.
+        as JSONB. Not validated against a fixed schema. MUST NOT contain PII
+        or full card/account numbers — masking and validation of sensitive
+        values is enforced at the service layer per AGENTS.md's Security
+        section, not by this schema.
       additionalProperties: true
     risk_level:
       description: >-
@@ -172,7 +175,11 @@ CreateTransactionRequest:
         - mobile
     metadata:
       type: object
-      description: Optional free-form passthrough attributes persisted as JSONB.
+      description: >-
+        Optional free-form passthrough attributes persisted as JSONB. MUST
+        NOT contain PII or full card/account numbers — masking and
+        validation of sensitive values is enforced at the service layer per
+        AGENTS.md's Security section, not by this schema.
       additionalProperties: true
 
 TransactionSummary:
