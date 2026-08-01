@@ -1,0 +1,156 @@
+# OpenAPI 3.1 contract for the ML Inference Service (Python / FastAPI).
+# This spec is the source of truth for ml-services/inference-service —
+# written before any implementation code exists, per AGENTS.md's API-First
+# Design principle.
+openapi: 3.1.0
+info:
+  title: Lynceus ML Inference Service API
+  version: 0.1.0
+  description: >-
+    Computes fraud scores for transactions using an ensemble of an
+    Isolation Forest and an Autoencoder model. Called synchronously by the
+    Transaction Service and Flink streaming jobs.
+servers:
+  - url: http://localhost:8082
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Scoring
+    description: Fraud score computation for individual and batched transactions.
+
+paths:
+  /api/v1/scoring/score:
+    post:
+      tags: [Scoring]
+      operationId: scoreTransaction
+      summary: Compute a fraud score for a single transaction.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreTransactionRequest'
+      responses:
+        '200':
+          description: Fraud score computed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoreTransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/scoring/batch:
+    post:
+      tags: [Scoring]
+      operationId: scoreTransactionsBatch
+      summary: Compute fraud scores for a batch of transactions in one call.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ScoreTransactionRequest'
+      responses:
+        '200':
+          description: Fraud scores computed successfully, in request order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoreTransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/scoring/health:
+    get:
+      tags: [Scoring]
+      operationId: getScoringHealth
+      summary: Report scoring service health and the currently loaded model version.
+      security: []
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - model_version
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  model_version:
+                    type: string
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        JWT issued by Keycloak. NGINX validates the token at the gateway
+        before forwarding the request; services trust the tenant_id and
+        role claims already present on the token.
+
+  parameters:
+    TenantIdHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: Identifier of the tenant making the request.
+      schema:
+        type: string
+
+  schemas:
+    ScoreTransactionRequest:
+      $ref: './shared/schemas/fraud-score.yaml#/ScoreTransactionRequest'
+    ScoreTransactionResponse:
+      $ref: './shared/schemas/fraud-score.yaml#/ScoreTransactionResponse'
+    FraudScore:
+      $ref: './shared/schemas/fraud-score.yaml#/FraudScore'
+    ErrorResponse:
+      $ref: './shared/errors.yaml#/ErrorResponse'
+
+  responses:
+    BadRequest:
+      $ref: './shared/errors.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './shared/errors.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './shared/errors.yaml#/Forbidden'
+    UnprocessableEntity:
+      $ref: './shared/errors.yaml#/UnprocessableEntity'
+    InternalServerError:
+      $ref: './shared/errors.yaml#/InternalServerError'

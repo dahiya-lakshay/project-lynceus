@@ -1,0 +1,181 @@
+# Reusable fraud-scoring schema components shared across the inference-api
+# and transaction-api specs. Same bare, unwrapped-schema convention as
+# transaction.yaml — see the comment block there for the rationale.
+
+FraudScore:
+  type: object
+  description: >-
+    Persisted fraud scoring result for a transaction, combining the
+    Isolation Forest and Autoencoder model outputs into an ensemble score.
+  required:
+    - id
+    - transaction_id
+    - tenant_id
+    - isolation_forest_score
+    - ensemble_score
+    - risk_level
+    - model_version
+    - feature_vector
+    - scored_at
+  properties:
+    id:
+      type: string
+      format: uuid
+      description: Unique identifier of this scoring result.
+    transaction_id:
+      type: string
+      format: uuid
+      description: Identifier of the transaction that was scored.
+    tenant_id:
+      type: string
+      description: Identifier of the owning tenant (financial institution).
+    isolation_forest_score:
+      type: number
+      minimum: 0
+      maximum: 1
+      description: Anomaly probability from the Isolation Forest model.
+    autoencoder_score:
+      description: >-
+        Reconstruction-error-derived anomaly probability from the
+        Autoencoder model. Null when the autoencoder model was not
+        available at scoring time.
+      type:
+        - number
+        - 'null'
+      minimum: 0
+      maximum: 1
+    ensemble_score:
+      type: number
+      minimum: 0
+      maximum: 1
+      description: Combined fraud probability derived from all contributing models.
+    risk_level:
+      type: string
+      description: Risk tier derived from the ensemble score.
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+    model_version:
+      type: string
+      description: Version identifier of the model ensemble used to produce this score.
+    feature_vector:
+      type: object
+      description: Engineered feature values used as model input, for auditability.
+      additionalProperties: true
+    explanation:
+      description: >-
+        Optional model explainability payload (e.g. feature attributions).
+        Null when explainability was not computed.
+      type:
+        - object
+        - 'null'
+      additionalProperties: true
+    scored_at:
+      type: string
+      format: date-time
+      description: Timestamp the transaction was scored.
+
+ScoreTransactionRequest:
+  type: object
+  description: >-
+    Raw transaction attributes submitted to the inference service so it can
+    compute features and produce a fraud score.
+  required:
+    - transaction_id
+    - tenant_id
+    - customer_id
+    - amount
+    - merchant_category
+    - is_online
+    - is_foreign
+    - channel
+    - transaction_timestamp
+  properties:
+    transaction_id:
+      type: string
+      format: uuid
+    tenant_id:
+      type: string
+      description: >-
+        Identifier of the owning tenant. Required so the inference service
+        can populate the tenant_id column on the persisted FraudScore record.
+    customer_id:
+      type: string
+      format: uuid
+    amount:
+      type: number
+      format: decimal
+      minimum: 0
+    merchant_category:
+      type: string
+      enum:
+        - grocery
+        - electronics
+        - gas_station
+        - restaurant
+        - online_shopping
+        - travel
+        - entertainment
+        - healthcare
+        - utilities
+        - clothing
+    is_online:
+      type: boolean
+    is_foreign:
+      type: boolean
+    channel:
+      type: string
+      enum:
+        - online
+        - in_store
+        - atm
+        - mobile
+    transaction_timestamp:
+      type: string
+      format: date-time
+      description: Timestamp the transaction occurred (as reported by the source system).
+
+ScoreTransactionResponse:
+  type: object
+  description: Fraud score computed synchronously for a single transaction.
+  required:
+    - transaction_id
+    - tenant_id
+    - isolation_forest_score
+    - ensemble_score
+    - risk_level
+    - model_version
+    - feature_vector
+    - scored_at
+  properties:
+    transaction_id:
+      type: string
+      format: uuid
+    tenant_id:
+      type: string
+      description: Identifier of the owning tenant this score was computed for.
+    isolation_forest_score:
+      type: number
+      minimum: 0
+      maximum: 1
+    ensemble_score:
+      type: number
+      minimum: 0
+      maximum: 1
+    risk_level:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+    model_version:
+      type: string
+    feature_vector:
+      type: object
+      additionalProperties: true
+    scored_at:
+      type: string
+      format: date-time

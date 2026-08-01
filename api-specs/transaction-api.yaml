@@ -1,0 +1,206 @@
+# OpenAPI 3.1 contract for the Transaction Service (Java / Spring Boot).
+# This spec is the source of truth for services/transaction-service — written
+# before any implementation code exists, per AGENTS.md's API-First Design
+# principle. Do not change endpoint shapes here to match an implementation;
+# the implementation must conform to this contract.
+openapi: 3.1.0
+info:
+  title: Lynceus Transaction Service API
+  version: 0.1.0
+  description: >-
+    Ingests and retrieves financial transactions for fraud detection.
+    Every request is scoped to a single tenant via the X-Tenant-Id header;
+    every persisted record carries tenant_id for multi-tenant isolation.
+servers:
+  - url: http://localhost:8081
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Transactions
+    description: Create and retrieve transactions.
+
+paths:
+  /api/v1/transactions:
+    post:
+      tags: [Transactions]
+      operationId: createTransaction
+      summary: Ingest a new transaction.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '202':
+          description: >-
+            Transaction accepted for async processing. The transaction is
+            persisted and fraud scoring is in flight; risk_level and
+            fraud_score on the returned Transaction will be null until
+            scoring completes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [Transactions]
+      operationId: listTransactions
+      summary: List transactions for the tenant, paginated and filterable.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: risk_level
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+        - name: merchant_category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - grocery
+              - electronics
+              - gas_station
+              - restaurant
+              - online_shopping
+              - travel
+              - entertainment
+              - healthcare
+              - utilities
+              - clothing
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: date_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated list of transactions matching the query.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/transactions/{id}:
+    get:
+      tags: [Transactions]
+      operationId: getTransaction
+      summary: Retrieve a single transaction by ID, including fraud score if scored.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The requested transaction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        JWT issued by Keycloak. NGINX validates the token at the gateway
+        before forwarding the request; services trust the tenant_id and
+        role claims already present on the token.
+
+  parameters:
+    TenantIdHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: Identifier of the tenant making the request.
+      schema:
+        type: string
+
+  schemas:
+    Transaction:
+      $ref: './shared/schemas/transaction.yaml#/Transaction'
+    CreateTransactionRequest:
+      $ref: './shared/schemas/transaction.yaml#/CreateTransactionRequest'
+    TransactionSummary:
+      $ref: './shared/schemas/transaction.yaml#/TransactionSummary'
+    TransactionListResponse:
+      $ref: './shared/schemas/transaction.yaml#/TransactionListResponse'
+    ErrorResponse:
+      $ref: './shared/errors.yaml#/ErrorResponse'
+
+  responses:
+    BadRequest:
+      $ref: './shared/errors.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './shared/errors.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './shared/errors.yaml#/Forbidden'
+    NotFound:
+      $ref: './shared/errors.yaml#/NotFound'
+    UnprocessableEntity:
+      $ref: './shared/errors.yaml#/UnprocessableEntity'
+    TooManyRequests:
+      $ref: './shared/errors.yaml#/TooManyRequests'
+    InternalServerError:
+      $ref: './shared/errors.yaml#/InternalServerError'
