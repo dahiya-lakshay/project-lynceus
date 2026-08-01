@@ -27,6 +27,8 @@ paths:
       tags: [Scoring]
       operationId: scoreTransaction
       summary: Compute a fraud score for a single transaction.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
       requestBody:
         required: true
         content:
@@ -52,6 +54,8 @@ paths:
       tags: [Scoring]
       operationId: scoreTransactionsBatch
       summary: Compute fraud scores for a batch of transactions in one call.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
       requestBody:
         required: true
         content:
@@ -111,6 +115,15 @@ components:
         JWT issued by Keycloak. NGINX validates the token at the gateway
         before forwarding the request; services trust the tenant_id and
         role claims already present on the token.
+
+  parameters:
+    TenantIdHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: Identifier of the tenant making the request.
+      schema:
+        type: string
 
   schemas:
     ScoreTransactionRequest:
