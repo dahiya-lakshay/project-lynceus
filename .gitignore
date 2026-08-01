@@ -33,6 +33,9 @@ out/
 *.swo
 .DS_Store
 
+# === Claude Code (local-only settings) ===
+.claude/settings.local.json
+
 # === Environment ===
 .env
 .env.local
