@@ -28,9 +28,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Trust an inbound X-Request-Id / traceparent from the gateway if
         # present (preserves correlation across service hops); otherwise
         # mint one so every request is still traceable in isolation.
