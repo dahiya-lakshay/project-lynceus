@@ -181,6 +181,16 @@ components:
   schemas:
     Transaction:
       $ref: './shared/schemas/transaction.yaml#/Transaction'
+    # Added by Task 8's implementation: RecentTransactionsResponse.items below was originally
+    # specified against the full Transaction schema, but transaction-service's actual
+    # GET /api/v1/transactions (which this endpoint delegates straight to, per its summary
+    # above — no BFF-side aggregation or per-row transformation) only ever returns
+    # TransactionSummary-shaped rows from its list endpoint; fetching the full Transaction for
+    # every row individually would mean an N+1 call per page, defeating the whole point of a
+    # plain pass-through endpoint. TransactionSummary already carries everything a "recent
+    # transactions" list widget needs (id, amount, merchant_name, risk_level, created_at).
+    TransactionSummary:
+      $ref: './shared/schemas/transaction.yaml#/TransactionSummary'
     ErrorResponse:
       $ref: './shared/errors.yaml#/ErrorResponse'
 
@@ -220,7 +230,10 @@ components:
 
     RecentTransactionsResponse:
       type: object
-      description: Paginated list of full transaction records, including fraud scores.
+      description: >-
+        Paginated list of recent transaction summaries, most recent first —
+        a direct pass-through of transaction-service's own
+        GET /api/v1/transactions list response, unmodified.
       required:
         - items
         - total
@@ -230,7 +243,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/Transaction'
+            $ref: '#/components/schemas/TransactionSummary'
         total:
           type: integer
           minimum: 0

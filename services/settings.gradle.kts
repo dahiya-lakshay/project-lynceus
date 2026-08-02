@@ -12,7 +12,7 @@ rootProject.name = "lynceus-services"
 
 include(
     "shared-lib",
-    "transaction-service"
-    // "dashboard-bff",       // uncommented by Task 8 once its build.gradle.kts exists
+    "transaction-service",
+    "dashboard-bff"
     // alert-service and customer-service added in Phase 2
 )

@@ -1,0 +1,26 @@
+# Added by Task 8 (Dashboard BFF): supports FraudScoreRepository.scoreTimeline's
+# GROUP BY date_trunc(:interval, scored_at) query (GET
+# /api/v1/transactions/stats/timeline). Without an index covering
+# (tenant_id, scored_at), that query has to sequentially scan every one of a
+# tenant's fraud_scores rows — fine at Phase 1's dev-seed scale, but exactly
+# the kind of unindexed aggregate that becomes a real production problem as
+# row counts grow, and cheap to add now while the table is still young.
+#
+# Deliberately its own changelog file rather than editing
+# 20260802-03-create-indexes.yaml: that file was already reviewed and merged
+# under Task 6, and per AGENTS.md this only ever adds new up-migrations, never
+# edits a previously-applied changeset.
+databaseChangeLog:
+  - changeSet:
+      id: 20260802-04-01
+      author: lynceus
+      comment: Index for dashboard fraud-score timeline aggregation
+      changes:
+        - createIndex:
+            indexName: idx_fraud_scores_tenant_scored_at
+            tableName: fraud_scores
+            columns:
+              - column:
+                  name: tenant_id
+              - column:
+                  name: scored_at
