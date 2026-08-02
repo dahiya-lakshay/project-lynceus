@@ -2,14 +2,21 @@
 
 Generates a CSV whose columns are a superset of the `transactions` table
 (infrastructure/db/migrations/changelogs/20260802-01-create-transactions-table.yaml):
-every real DB column is populated, plus one extra column, `is_fraud`.
+every real DB column is populated, plus two extra columns, `is_fraud` and
+`fraud_pattern`.
 
-IMPORTANT: `is_fraud` is a synthetic-data-only label used for training/evaluation.
-It is NOT a column on the real `transactions` table — `seed_database.py` excludes
-it from its COPY statement. Never assume any DB-facing code can read `is_fraud`
-off a real transaction; there is no ground-truth fraud label in production data,
-which is exactly why we train an *unsupervised* model (Isolation Forest) in the
-first place.
+IMPORTANT: `is_fraud` and `fraud_pattern` are synthetic-data-only labels used
+for training/evaluation. Neither is a column on the real `transactions`
+table — `seed_database.py` excludes both from its COPY statement. Never
+assume any DB-facing code can read either off a real transaction; there is
+no ground-truth fraud label (let alone a pattern label) in production data,
+which is exactly why we train an *unsupervised* model (Isolation Forest) in
+the first place. `fraud_pattern` is `"normal"` for non-fraud rows and one of
+the five pattern names below otherwise — it exists so
+`train_isolation_forest.py` can report per-pattern detection metrics instead
+of a single aggregate number that can hide a pattern the current Phase 1
+feature set (see feature_engineer.py — no location/velocity/customer-history
+features yet) can't actually detect.
 
 `amount_bucket` is also never written here: it's a Postgres
 `GENERATED ALWAYS AS (...) STORED` column, computed by the database itself from
@@ -116,6 +123,26 @@ _HOUR_WEIGHTS = np.array(
 _HOUR_WEIGHTS = _HOUR_WEIGHTS / _HOUR_WEIGHTS.sum()
 
 _MERCHANTS_PER_CATEGORY = 10
+
+# fraud_pattern label values. Fraud pattern names match configs/data_generation.yaml's
+# fraud_patterns keys exactly (train_isolation_forest.py imports these constants rather
+# than hard-coding the strings a second time). PATTERN_NORMAL covers both genuine normal
+# transactions and the non-fraud "previous transaction" companion row
+# make_geo_impossibility_pair emits.
+PATTERN_NORMAL = "normal"
+PATTERN_HIGH_AMOUNT = "high_amount"
+PATTERN_VELOCITY_BURST = "velocity_burst"
+PATTERN_GEOGRAPHIC_IMPOSSIBILITY = "geographic_impossibility"
+PATTERN_CATEGORY_ANOMALY = "category_anomaly"
+PATTERN_LATE_NIGHT = "late_night"
+ALL_PATTERNS: tuple[str, ...] = (
+    PATTERN_NORMAL,
+    PATTERN_HIGH_AMOUNT,
+    PATTERN_VELOCITY_BURST,
+    PATTERN_GEOGRAPHIC_IMPOSSIBILITY,
+    PATTERN_CATEGORY_ANOMALY,
+    PATTERN_LATE_NIGHT,
+)
 
 
 @dataclass
@@ -273,11 +300,12 @@ def _make_row(
     device_id: str,
     rng: np.random.Generator,
     is_fraud: bool,
+    pattern: str,
 ) -> dict[str, Any]:
     """Assembles one CSV row covering every real `transactions` column plus
-    the synthetic-only `is_fraud` label. `updated_at` mirrors `created_at`
-    since these rows are never mutated after being written — they're seeded
-    once as historical data, not created and later updated.
+    the synthetic-only `is_fraud`/`fraud_pattern` labels. `updated_at` mirrors
+    `created_at` since these rows are never mutated after being written —
+    they're seeded once as historical data, not created and later updated.
     """
     return {
         "id": str(uuid.uuid4()),
@@ -299,6 +327,7 @@ def _make_row(
         "created_at": timestamp.isoformat(),
         "updated_at": timestamp.isoformat(),
         "is_fraud": bool(is_fraud),
+        "fraud_pattern": pattern,
     }
 
 
@@ -348,6 +377,7 @@ def make_normal_transaction(
         device_id=device_id,
         rng=rng,
         is_fraud=False,
+        pattern=PATTERN_NORMAL,
     )
 
 
@@ -389,6 +419,7 @@ def make_high_amount_fraud(
         device_id=device_id,
         rng=rng,
         is_fraud=True,
+        pattern=PATTERN_HIGH_AMOUNT,
     )
 
 
@@ -445,6 +476,7 @@ def make_velocity_burst_cluster(
                 device_id=device_id,
                 rng=rng,
                 is_fraud=True,
+                pattern=PATTERN_VELOCITY_BURST,
             )
         )
     return rows
@@ -492,6 +524,7 @@ def make_geo_impossibility_pair(
         device_id=str(rng.choice(customer.device_ids)),
         rng=rng,
         is_fraud=False,
+        pattern=PATTERN_NORMAL,
     )
 
     # Pick a far-enough location; the fixed pool is always >1000km from any
@@ -531,6 +564,7 @@ def make_geo_impossibility_pair(
         device_id=str(rng.choice(customer.device_ids)),
         rng=rng,
         is_fraud=True,
+        pattern=PATTERN_GEOGRAPHIC_IMPOSSIBILITY,
     )
     return [prev_row, fraud_row]
 
@@ -572,6 +606,7 @@ def make_category_anomaly_fraud(
         device_id=device_id,
         rng=rng,
         is_fraud=True,
+        pattern=PATTERN_CATEGORY_ANOMALY,
     )
 
 
@@ -623,6 +658,7 @@ def make_late_night_cluster(
                 device_id=device_id,
                 rng=rng,
                 is_fraud=True,
+                pattern=PATTERN_LATE_NIGHT,
             )
         )
     return rows

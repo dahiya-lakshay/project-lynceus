@@ -5,11 +5,12 @@ Uses psycopg3's COPY protocol (`cursor.copy()`), not row-by-row INSERTs — a
 per-statement round-trip and transaction overhead; COPY streams the whole
 file to the server in one pass.
 
-Only real `transactions` table columns are written. `is_fraud` (the
-synthetic-data-only training label — see generate_synthetic_data.py's module
-docstring) and `amount_bucket` (a Postgres `GENERATED ALWAYS AS (...) STORED`
-column the database computes itself) are both excluded; inserting either
-would be either meaningless or outright rejected.
+Only real `transactions` table columns are written. `is_fraud` and
+`fraud_pattern` (synthetic-data-only training labels — see
+generate_synthetic_data.py's module docstring) and `amount_bucket` (a
+Postgres `GENERATED ALWAYS AS (...) STORED` column the database computes
+itself) are all excluded; inserting any of them would be either meaningless
+or outright rejected.
 
 Connects using the same POSTGRES_* env var names as
 infrastructure/docker/.env.example, defaulting to that file's dev values so
@@ -30,9 +31,10 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _DEFAULT_CSV_PATH = _SCRIPT_DIR.parent / "data" / "synthetic_transactions.csv"
 
 # Real `transactions` table columns, in COPY order. Deliberately excludes
-# `is_fraud` (not a DB column) and `amount_bucket` (DB-generated). `metadata`
-# is also omitted — the generator never populates it, and it's nullable, so
-# leaving it out of the COPY column list is equivalent to writing NULL.
+# `is_fraud` and `fraud_pattern` (neither is a DB column) and `amount_bucket`
+# (DB-generated). `metadata` is also omitted — the generator never populates
+# it, and it's nullable, so leaving it out of the COPY column list is
+# equivalent to writing NULL.
 _COPY_COLUMNS: tuple[str, ...] = (
     "id",
     "tenant_id",
