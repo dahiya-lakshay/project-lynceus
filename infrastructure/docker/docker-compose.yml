@@ -1,0 +1,194 @@
+# Full-stack Docker Compose for Lynceus local development.
+# Brings up infrastructure (PostgreSQL, Redis) plus every application
+# service behind the NGINX gateway. Run via `make dev-all`.
+#
+# This file intentionally duplicates the infra service definitions from
+# docker-compose.infra.yml (rather than using `include`/`extends`) to keep
+# each compose file independently readable and runnable.
+#
+# Requires a `.env` file in this directory (copy from `.env.example`).
+
+services:
+  # ============================================
+  # INFRASTRUCTURE
+  # ============================================
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: lynceus-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - lynceus-pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lynceus-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: lynceus-redis
+    restart: unless-stopped
+    env_file: .env
+    # requirepass is set via the mounted redis.conf (copy redis.conf.example
+    # first), not `--requirepass` on the command line: Compose bakes CLI args
+    # verbatim into Config.Cmd, which is visible in plaintext to anything that
+    # can `docker inspect`/`docker top` the container. A mounted file avoids
+    # that permanent exposure. AOF persistence (also set in redis.conf)
+    # survives container restarts.
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - lynceus-redisdata:/data
+    healthcheck:
+      # REDISCLI_AUTH keeps the password out of argv (unlike `redis-cli -a
+      # <password>`), so it doesn't leak via `ps`/`docker top` on every poll.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - lynceus-network
+
+  # ============================================
+  # APPLICATION SERVICES
+  # ============================================
+  transaction-service:
+    container_name: lynceus-transaction-service
+    build:
+      context: ../../services
+      dockerfile: transaction-service/Dockerfile
+    env_file: .env
+    ports:
+      - "${TXN_SERVICE_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - lynceus-network
+
+  inference-service:
+    container_name: lynceus-inference-service
+    build:
+      context: ../../ml-services/inference-service
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "${INFERENCE_SERVICE_PORT:-8082}:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/api/v1/scoring/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - lynceus-network
+
+  dashboard-bff:
+    container_name: lynceus-dashboard-bff
+    build:
+      context: ../../services
+      dockerfile: dashboard-bff/Dockerfile
+    env_file: .env
+    ports:
+      - "${BFF_SERVICE_PORT:-8083}:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - lynceus-network
+
+  frontend:
+    container_name: lynceus-frontend
+    build:
+      context: ../../frontend
+      dockerfile: apps/dashboard/Dockerfile
+    env_file: .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      dashboard-bff:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - lynceus-network
+
+  nginx:
+    container_name: lynceus-nginx
+    build:
+      context: ../nginx
+      dockerfile: Dockerfile
+    ports:
+      - "${NGINX_PORT:-8080}:8080"
+    # NGINX resolves its `upstream` blocks once at config-load time, not
+    # per-request — if any upstream host isn't yet registered on the Docker
+    # network when nginx starts, it exits immediately with "host not found
+    # in upstream". All four upstreams (including the slow-to-build Next.js
+    # frontend) must be healthy before nginx starts.
+    depends_on:
+      transaction-service:
+        condition: service_healthy
+      inference-service:
+        condition: service_healthy
+      dashboard-bff:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lynceus-network
+
+networks:
+  lynceus-network:
+    driver: bridge
+
+volumes:
+  lynceus-pgdata:
+  lynceus-redisdata:

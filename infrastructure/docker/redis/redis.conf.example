@@ -1,0 +1,18 @@
+# Redis configuration for Lynceus local development.
+#
+# Copy this file to redis.conf (git-ignored) before starting either compose
+# stack:
+#   cp infrastructure/docker/redis/redis.conf.example infrastructure/docker/redis/redis.conf
+#
+# requirepass lives here — mounted read-only into the container and read by
+# redis-server at startup — rather than being passed via `--requirepass` on
+# the command line. Compose bakes CLI args verbatim into the container's
+# Config.Cmd, which is visible in plaintext to anything that can
+# `docker inspect`/`docker top` the container. A mounted config file avoids
+# that permanent exposure.
+#
+# Keep this value in sync with REDIS_PASSWORD in ../.env.
+requirepass redis_dev_password
+
+# AOF persistence so cached feature-store data survives container restarts.
+appendonly yes

@@ -43,6 +43,10 @@ out/
 .env.*.local
 !.env.example
 
+# === Redis (contains dev password) ===
+infrastructure/docker/redis/redis.conf
+!infrastructure/docker/redis/redis.conf.example
+
 # === Docker ===
 docker-compose.override.yml
 

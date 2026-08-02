@@ -1,0 +1,73 @@
+# Infrastructure-only Docker Compose stack for Lynceus local development.
+# Brings up PostgreSQL 17 (with pgvector) and Redis, without the application
+# services. Run via `make infra-up` when iterating on a single service locally
+# (e.g. `./gradlew :transaction-service:bootRun`) against real dependencies.
+#
+# Requires a `.env` file in this directory (copy from `.env.example`).
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: lynceus-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # pg_stat_statements must be preloaded to track query stats after the
+    # extension is created by init.sql.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - lynceus-pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lynceus-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: lynceus-redis
+    restart: unless-stopped
+    env_file: .env
+    # requirepass is set via the mounted redis.conf (copy redis.conf.example
+    # first), not `--requirepass` on the command line: Compose bakes CLI args
+    # verbatim into Config.Cmd, which is visible in plaintext to anything that
+    # can `docker inspect`/`docker top` the container. A mounted file avoids
+    # that permanent exposure. AOF persistence (also set in redis.conf)
+    # survives container restarts.
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - lynceus-redisdata:/data
+    healthcheck:
+      # REDISCLI_AUTH keeps the password out of argv (unlike `redis-cli -a
+      # <password>`), so it doesn't leak via `ps`/`docker top` on every poll.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - lynceus-network
+
+networks:
+  lynceus-network:
+    driver: bridge
+
+volumes:
+  lynceus-pgdata:
+  lynceus-redisdata:
