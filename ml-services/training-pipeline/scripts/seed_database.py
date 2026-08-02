@@ -82,8 +82,11 @@ def seed_from_csv(csv_path: Path, *, connection_string: str | None = None) -> in
 
     # Parse into native Python types so psycopg's adapters (not ad-hoc string
     # formatting) handle serialization for each column's Postgres type.
-    dataframe["created_at"] = pd.to_datetime(dataframe["created_at"])
-    dataframe["updated_at"] = pd.to_datetime(dataframe["updated_at"])
+    # format="ISO8601" (not the default strict-format inference) tolerates a
+    # mix of whole-second and fractional-second timestamps in the same
+    # column, which pandas otherwise rejects outright.
+    dataframe["created_at"] = pd.to_datetime(dataframe["created_at"], format="ISO8601")
+    dataframe["updated_at"] = pd.to_datetime(dataframe["updated_at"], format="ISO8601")
     dataframe["amount"] = dataframe["amount"].apply(lambda value: Decimal(str(value)))
     dataframe["location_lat"] = dataframe["location_lat"].apply(lambda value: Decimal(str(value)))
     dataframe["location_lng"] = dataframe["location_lng"].apply(lambda value: Decimal(str(value)))

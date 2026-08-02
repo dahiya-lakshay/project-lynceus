@@ -415,7 +415,11 @@ def make_velocity_burst_cluster(
     rows = []
     for _ in range(size):
         offset_minutes = float(rng.uniform(0, window_hours * 60))
-        timestamp = burst_start + timedelta(minutes=offset_minutes)
+        # Whole-second precision, matching every other timestamp this script
+        # writes (see _random_timestamp_diurnal) — timedelta(minutes=<float>)
+        # otherwise introduces microseconds that make the CSV's created_at
+        # column mixed-precision and harder for downstream ISO8601 parsers.
+        timestamp = (burst_start + timedelta(minutes=offset_minutes)).replace(microsecond=0)
         category = str(rng.choice(customer.preferred_categories, p=customer.category_weights))
         merchant_id, merchant_name = _pick_merchant(merchants, category, rng)
         amount = float(rng.normal(customer.mean_amount * 0.6, customer.std_amount * 0.5))
@@ -503,7 +507,8 @@ def make_geo_impossibility_pair(
         ]
 
     delta_minutes = float(rng.uniform(5, max_time_hours * 60))
-    fraud_timestamp = prev_timestamp + timedelta(minutes=delta_minutes)
+    # .replace(microsecond=0): see make_velocity_burst_cluster's identical note.
+    fraud_timestamp = (prev_timestamp + timedelta(minutes=delta_minutes)).replace(microsecond=0)
     if fraud_timestamp > end:
         fraud_timestamp = end - timedelta(minutes=1)
 
