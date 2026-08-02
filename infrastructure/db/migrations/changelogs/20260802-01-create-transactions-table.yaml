@@ -9,6 +9,14 @@
 #     created_at/updated_at on every table (see AGENTS.md Database
 #     Conventions), and the doc's omission looks like an oversight there.
 #
+# NOT NULL is added to currency, merchant_name, merchant_category, is_online,
+# is_foreign, channel, created_at, and updated_at to match the required-field
+# list on the Transaction schema in api-specs/shared/schemas/transaction.yaml
+# exactly — the DB contract must be at least as strict as what the API
+# already promises callers is always present. merchant_id, location_lat/lng,
+# country_code, device_id, ip_address, and metadata stay nullable: the API
+# schema doesn't require them.
+#
 # A raw `sql` changeset is used instead of Liquibase's structured
 # `createTable` because createTable has no clean way to express a Postgres
 # `GENERATED ALWAYS AS (...) STORED` column.
@@ -26,21 +34,21 @@ databaseChangeLog:
                   tenant_id VARCHAR(50) NOT NULL,
                   customer_id UUID NOT NULL,
                   amount DECIMAL(15, 2) NOT NULL,
-                  currency VARCHAR(3) DEFAULT 'USD',
-                  merchant_name VARCHAR(255),
-                  merchant_category VARCHAR(100),
+                  currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                  merchant_name VARCHAR(255) NOT NULL,
+                  merchant_category VARCHAR(100) NOT NULL,
                   merchant_id VARCHAR(100),
                   location_lat DECIMAL(10, 7),
                   location_lng DECIMAL(10, 7),
                   country_code VARCHAR(3),
-                  is_online BOOLEAN DEFAULT FALSE,
-                  is_foreign BOOLEAN DEFAULT FALSE,
-                  channel VARCHAR(50),
+                  is_online BOOLEAN NOT NULL DEFAULT FALSE,
+                  is_foreign BOOLEAN NOT NULL DEFAULT FALSE,
+                  channel VARCHAR(50) NOT NULL,
                   device_id VARCHAR(100),
                   ip_address INET,
                   metadata JSONB,
-                  created_at TIMESTAMPTZ DEFAULT NOW(),
-                  updated_at TIMESTAMPTZ DEFAULT NOW(),
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
                   -- Generated column for amount bucketing. Lets dashboard/analytics
                   -- queries filter or group by bucket without recomputing the CASE
