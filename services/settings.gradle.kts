@@ -11,8 +11,8 @@ plugins {
 rootProject.name = "lynceus-services"
 
 include(
-    "shared-lib"
-    // "transaction-service", // uncommented by Task 6 once its build.gradle.kts exists
+    "shared-lib",
+    "transaction-service"
     // "dashboard-bff",       // uncommented by Task 8 once its build.gradle.kts exists
     // alert-service and customer-service added in Phase 2
 )

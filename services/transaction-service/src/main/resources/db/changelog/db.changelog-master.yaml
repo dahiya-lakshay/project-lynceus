@@ -1,0 +1,16 @@
+# Root Liquibase changelog for Lynceus.
+#
+# This file only wires up include order — actual schema changes live in
+# individual changelog files under changelogs/, one file per logical schema
+# change, named YYYYMMDD-HH-description.yaml. Up-migrations only; we never
+# write rollback/down migrations (see AGENTS.md Database Conventions).
+databaseChangeLog:
+  - include:
+      file: changelogs/20260802-01-create-transactions-table.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: changelogs/20260802-02-create-fraud-scores-table.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: changelogs/20260802-03-create-indexes.yaml
+      relativeToChangelogFile: true

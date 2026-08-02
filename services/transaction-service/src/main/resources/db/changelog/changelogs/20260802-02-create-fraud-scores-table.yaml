@@ -1,0 +1,103 @@
+# Creates the fraud_scores table.
+#
+# Phase 1 only produces isolation_forest_score (Isolation Forest is the only
+# model trained in this phase); autoencoder_score is nullable and filled in
+# once the autoencoder model ships in Phase 2. explanation (SHAP values) is
+# nullable and populated starting Phase 3 when explainability is added.
+#
+# Nullability matches the required-field list on the FraudScore schema in
+# api-specs/shared/schemas/fraud-score.yaml exactly: isolation_forest_score,
+# model_version, feature_vector, and scored_at are required there (in
+# addition to id/transaction_id/tenant_id/ensemble_score/risk_level, already
+# NOT NULL below), so they're NOT NULL here too. autoencoder_score and
+# explanation are nullable/optional in the API contract and stay nullable.
+databaseChangeLog:
+  - changeSet:
+      id: 20260802-02-01
+      author: lynceus
+      comment: Create fraud_scores table
+      changes:
+        - createTable:
+            tableName: fraud_scores
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: tenant_id
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  # onDelete is deliberately left at Postgres's default NO
+                  # ACTION: fraud_scores is an auditable record, so deleting
+                  # a transaction must never silently cascade-delete the
+                  # fraud score computed against it.
+                  name: transaction_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    references: transactions(id)
+                    foreignKeyName: fk_fraud_scores_transaction
+              - column:
+                  # Phase 1 only has this model, and it's always computed —
+                  # required per the FraudScore API schema.
+                  name: isolation_forest_score
+                  type: DECIMAL(5, 4)
+                  constraints:
+                    nullable: false
+              - column:
+                  # NULLABLE — filled in Phase 2 once the autoencoder model ships.
+                  name: autoencoder_score
+                  type: DECIMAL(5, 4)
+              - column:
+                  name: ensemble_score
+                  type: DECIMAL(5, 4)
+                  constraints:
+                    nullable: false
+              - column:
+                  # 'low', 'medium', 'high', 'critical'
+                  name: risk_level
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: model_version
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: feature_vector
+                  type: JSONB
+                  constraints:
+                    nullable: false
+              - column:
+                  # NULLABLE — SHAP values, added in Phase 3.
+                  name: explanation
+                  type: JSONB
+              - column:
+                  name: scored_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+              - column:
+                  # Row-bookkeeping timestamps, distinct from scored_at (the
+                  # business timestamp for when scoring happened). Required
+                  # unconditionally on every table per AGENTS.md's Database
+                  # Conventions.
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
