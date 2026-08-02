@@ -48,6 +48,15 @@ class FeatureExtractionError(InferenceServiceError):
     Maps to 422 Unprocessable Entity — the request was syntactically valid
     (passed Pydantic validation) but semantically unscoreable, e.g. an
     out-of-range timestamp.
+
+    Currently unreachable: `ScoreTransactionRequest`'s own validation
+    (amount `ge=0`, an enum-covered `merchant_category`, a validated
+    `datetime`) already rules out every input `extract_features` would
+    choke on. This is deliberate anticipatory scaffolding, not dead code by
+    accident — kept for when feature extraction grows logic that can fail
+    on otherwise-valid input (e.g. a derived feature requiring an external
+    lookup), at which point `feature_engineer.py` should raise this instead
+    of a bare exception.
     """
 
     def __init__(self, message: str) -> None:
