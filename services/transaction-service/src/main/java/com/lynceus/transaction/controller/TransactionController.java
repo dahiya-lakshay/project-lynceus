@@ -3,6 +3,7 @@ package com.lynceus.transaction.controller;
 import com.lynceus.shared.dto.CreateTransactionRequest;
 import com.lynceus.shared.dto.MerchantCategory;
 import com.lynceus.shared.dto.PagedResponse;
+import com.lynceus.shared.dto.RiskLevel;
 import com.lynceus.shared.dto.TransactionDto;
 import com.lynceus.shared.dto.TransactionSummaryDto;
 import com.lynceus.transaction.service.TransactionService;
@@ -69,7 +70,7 @@ public class TransactionController {
   public ResponseEntity<PagedResponse<TransactionSummaryDto>> listTransactions(
       @RequestParam(defaultValue = "1") @Min(1) int page,
       @RequestParam(name = "page_size", defaultValue = "20") @Min(1) @Max(100) int pageSize,
-      @RequestParam(name = "risk_level", required = false) String riskLevel,
+      @RequestParam(name = "risk_level", required = false) RiskLevel riskLevel,
       @RequestParam(name = "merchant_category", required = false) MerchantCategory merchantCategory,
       @RequestParam(name = "date_from", required = false) Instant dateFrom,
       @RequestParam(name = "date_to", required = false) Instant dateTo) {
