@@ -157,6 +157,128 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # Added by Task 8 (Dashboard BFF): the BFF's KPI/chart endpoints need real
+  # SQL aggregation (COUNT/AVG/SUM/GROUP BY) over the tenant's full
+  # transaction set, which can run into the hundreds of thousands of rows —
+  # paginating through that from the BFF client-side would be both slow and
+  # the wrong shape for the problem. transaction-service owns the schema, so
+  # it's the right place to compute these aggregates; the BFF calls these
+  # endpoints and reshapes the results into its own dashboard-facing DTOs
+  # (see api-specs/dashboard-bff-api.yaml). Every endpoint here is
+  # tenant-scoped via the same X-Tenant-Id header pattern as the rest of
+  # this API.
+  /api/v1/transactions/stats/overview:
+    get:
+      tags: [Transactions]
+      operationId: getTransactionStatsOverview
+      summary: Aggregate KPIs (counts, average score, flagged count, total amount) for the tenant.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: Aggregate transaction/fraud-scoring KPIs for the tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionStats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/transactions/stats/score-distribution:
+    get:
+      tags: [Transactions]
+      operationId: getScoreDistribution
+      summary: Histogram of ensemble fraud scores across ten 0.1-wide buckets, for scored transactions.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: Fraud score distribution buckets, ordered 0.0-0.1 through 0.9-1.0.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoreDistributionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/transactions/stats/risk-breakdown:
+    get:
+      tags: [Transactions]
+      operationId: getRiskBreakdown
+      summary: Count of scored transactions per risk level.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+      responses:
+        '200':
+          description: >-
+            Transaction counts grouped by risk level. Only risk levels with at
+            least one scored transaction are present; a level with zero
+            scored transactions is simply omitted rather than returned with a
+            count of zero.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RiskLevelCount'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/transactions/stats/timeline:
+    get:
+      tags: [Transactions]
+      operationId: getScoreTimeline
+      summary: Average ensemble fraud score over time, bucketed by hour or day.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: interval
+          in: query
+          required: false
+          description: >-
+            Time-bucket width. Defaults to day, which is the right default
+            for Phase 1's seeded dev dataset (~100k transactions spread over
+            roughly seven months — hourly buckets would average only a
+            handful of transactions each and produce a noisy chart).
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+      responses:
+        '200':
+          description: Time series of average ensemble fraud score, ordered oldest to newest.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimelineSeriesPoint'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -188,6 +310,104 @@ components:
       $ref: './shared/schemas/transaction.yaml#/TransactionListResponse'
     ErrorResponse:
       $ref: './shared/errors.yaml#/ErrorResponse'
+
+    TransactionStats:
+      type: object
+      description: Aggregate KPIs computed server-side over the tenant's full transaction set.
+      required:
+        - total_transactions
+        - average_score
+        - flagged_count
+        - fraud_rate
+        - total_amount_processed
+      properties:
+        total_transactions:
+          type: integer
+          minimum: 0
+          description: Total number of transactions recorded for the tenant.
+        average_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >-
+            Mean ensemble fraud score across scored transactions. 0 when the
+            tenant has no scored transactions yet.
+        flagged_count:
+          type: integer
+          minimum: 0
+          description: Number of scored transactions with risk_level high or critical.
+        fraud_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >-
+            flagged_count divided by total_transactions. 0 when the tenant has
+            no transactions.
+        total_amount_processed:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Sum of transaction amounts processed for the tenant.
+
+    ScoreDistributionBucket:
+      type: object
+      description: Count of scored transactions whose ensemble score falls within a fixed 0.1-wide range.
+      required:
+        - range
+        - count
+      properties:
+        range:
+          type: string
+          description: Inclusive-lower, exclusive-upper score range, e.g. "0.0-0.1".
+          example: 0.0-0.1
+        count:
+          type: integer
+          minimum: 0
+
+    ScoreDistributionResponse:
+      type: object
+      description: >-
+        Full histogram of ten 0.1-wide fraud score buckets spanning 0.0 to
+        1.0, computed over scored transactions only.
+      required:
+        - buckets
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoreDistributionBucket'
+
+    RiskLevelCount:
+      type: object
+      required:
+        - risk_level
+        - count
+      properties:
+        risk_level:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+            - critical
+        count:
+          type: integer
+          minimum: 0
+
+    TimelineSeriesPoint:
+      type: object
+      required:
+        - timestamp
+        - average_score
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Start of the time bucket (UTC).
+        average_score:
+          type: number
+          minimum: 0
+          maximum: 1
 
   responses:
     BadRequest:
