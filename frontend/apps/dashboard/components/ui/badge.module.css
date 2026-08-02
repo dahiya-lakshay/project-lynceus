@@ -1,0 +1,47 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The colored dot is the secondary encoding alongside the text label —
+   risk level is never conveyed by color alone (dataviz skill's status
+   palette rule). */
+.badge::before {
+  content: "";
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: currentColor;
+}
+
+.low {
+  color: var(--color-risk-low);
+  background-color: color-mix(in srgb, var(--color-risk-low) 18%, transparent);
+}
+
+.medium {
+  color: var(--color-risk-medium);
+  background-color: color-mix(in srgb, var(--color-risk-medium) 18%, transparent);
+}
+
+.high {
+  color: var(--color-risk-high);
+  background-color: color-mix(in srgb, var(--color-risk-high) 18%, transparent);
+}
+
+.critical {
+  color: var(--color-risk-critical);
+  background-color: color-mix(in srgb, var(--color-risk-critical) 18%, transparent);
+}
+
+.pending {
+  color: var(--color-text-muted);
+  background-color: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}

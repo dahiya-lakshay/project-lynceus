@@ -1,0 +1,15 @@
+{
+  "name": "@lynceus/config-eslint",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "base.js",
+  "files": [
+    "base.js"
+  ],
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "8.65.0",
+    "@typescript-eslint/parser": "8.65.0",
+    "eslint": "9.39.5"
+  }
+}

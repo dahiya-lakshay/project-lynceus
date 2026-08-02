@@ -1,0 +1,5 @@
+# Turborepo workspace membership: the Next.js dashboard app plus the
+# shared packages it (and future apps) depend on.
+packages:
+  - "apps/*"
+  - "packages/*"
