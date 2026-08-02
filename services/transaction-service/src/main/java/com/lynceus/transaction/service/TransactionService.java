@@ -3,6 +3,7 @@ package com.lynceus.transaction.service;
 import com.lynceus.shared.dto.CreateTransactionRequest;
 import com.lynceus.shared.dto.MerchantCategory;
 import com.lynceus.shared.dto.PagedResponse;
+import com.lynceus.shared.dto.RiskLevel;
 import com.lynceus.shared.dto.ScoreTransactionRequest;
 import com.lynceus.shared.dto.ScoreTransactionResponse;
 import com.lynceus.shared.dto.TransactionDto;
@@ -26,7 +27,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Core business logic for ingesting and retrieving transactions. Controllers stay thin (AGENTS.md
@@ -68,7 +68,16 @@ public class TransactionService {
   // Phase 1: Synchronous scoring within the request. Phase 2 replaces this with Kafka event
   // publishing (fraud.scored topic) for true async processing — the transaction write and the
   // scoring call will no longer happen in the same request/transaction.
-  @Transactional
+  //
+  // Deliberately NOT @Transactional at this level: inferenceClient.score() is a blocking HTTP
+  // call (2s connect / 10s read timeout — see RestClientConfig) sitting between the two writes
+  // below. Wrapping the whole method in one transaction would hold a checked-out HikariCP
+  // connection (and an open DB transaction) for up to ~12s per request; under load, or
+  // whenever the inference service is slow/degraded, that exhausts the connection pool and
+  // cascades into failures on completely unrelated endpoints, not just ingestion. Each
+  // repository .save() below is transactional on its own (Spring Data's SimpleJpaRepository
+  // methods are @Transactional per-method by default), so splitting the writes around the HTTP
+  // call keeps every DB transaction short and scoped to a single insert.
   public TransactionDto create(CreateTransactionRequest request) {
     String tenantId = requireTenantId();
 
@@ -91,6 +100,7 @@ public class TransactionService {
             transaction.getChannel(),
             transaction.getCreatedAt());
 
+    // No open transaction/connection is held across this call — see the Javadoc above.
     FraudScore fraudScore = null;
     Optional<ScoreTransactionResponse> scoreResponse =
         inferenceClient.score(scoreRequest, tenantId);
@@ -103,9 +113,10 @@ public class TransactionService {
       // Graceful degradation: the transaction is already persisted and is still returned to
       // the caller below, just without risk_level/fraud_score populated.
       log.warn(
-          "Transaction {} persisted without a fraud score; inference service was unreachable"
-              + " or returned an error",
-          transaction.getId());
+          "Transaction {} for tenant {} persisted without a fraud score; inference service was"
+              + " unreachable or returned an error",
+          transaction.getId(),
+          tenantId);
     }
 
     TransactionDto dto = transactionMapper.toDto(transaction, fraudScore);
@@ -135,7 +146,7 @@ public class TransactionService {
   }
 
   public PagedResponse<TransactionSummaryDto> list(
-      String riskLevel,
+      RiskLevel riskLevel,
       MerchantCategory merchantCategory,
       Instant dateFrom,
       Instant dateTo,
@@ -143,12 +154,13 @@ public class TransactionService {
     String tenantId = requireTenantId();
 
     // The repository's search query is native SQL (see TransactionRepository for why), which
-    // doesn't apply JPA AttributeConverters to bind parameters — pass the enum's own wire value
-    // through directly rather than duplicating that mapping here.
+    // doesn't apply JPA AttributeConverters to bind parameters — pass each enum's own wire
+    // value through directly rather than duplicating that mapping here.
+    String riskLevelValue = riskLevel == null ? null : riskLevel.wireValue();
     String merchantCategoryValue = merchantCategory == null ? null : merchantCategory.wireValue();
     Page<Transaction> page =
         transactionRepository.search(
-            tenantId, riskLevel, merchantCategoryValue, dateFrom, dateTo, pageable);
+            tenantId, riskLevelValue, merchantCategoryValue, dateFrom, dateTo, pageable);
 
     List<UUID> transactionIds = page.getContent().stream().map(Transaction::getId).toList();
     // Batched lookup instead of one fraud-score query per row, to avoid N+1 queries when
