@@ -1,6 +1,7 @@
 package com.lynceus.transaction.repository;
 
 import com.lynceus.transaction.model.entity.Transaction;
+import com.lynceus.transaction.repository.projection.TransactionStatsProjection;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -74,4 +75,40 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
       @Param("dateFrom") Instant dateFrom,
       @Param("dateTo") Instant dateTo,
       Pageable pageable);
+
+  // Added by Task 8 (Dashboard BFF): backs GET /api/v1/transactions/stats/overview. Native SQL
+  // for the same reason `search` above is native (Spring Data's automatic query derivation and
+  // JPQL can't express this aggregate shape cleanly, and this codebase already established
+  // native SQL as how cross-table LEFT JOINs are done here) — total_transactions and
+  // total_amount_processed must count/sum every transaction regardless of whether it's been
+  // scored yet, hence the LEFT JOIN rather than an inner join against fraud_scores.
+  //
+  // Column aliases are quoted camelCase (e.g. AS "totalTransactions") rather than plain
+  // snake_case: unquoted Postgres identifiers are folded to lowercase, so an unquoted
+  // "AS totalTransactions" would come back as the column label "totaltransactions" — a quoted
+  // alias preserves exact case, which is what Spring Data's interface-projection binding matches
+  // against TransactionStatsProjection's getter names with zero ambiguity, rather than relying on
+  // (and having to verify) whatever relaxed snake_case-to-camelCase matching it may or may not do
+  // for native queries.
+  //
+  // COALESCE wraps every aggregate except COUNT: COUNT(*) over zero matching rows already
+  // returns 0, but SUM/AVG over zero rows returns SQL NULL regardless of the summed/averaged
+  // expression — without COALESCE, a brand-new tenant with no transactions yet would get NULLs
+  // here instead of the well-defined zero values TransactionStatsResponse's non-nullable
+  // primitive fields require.
+  @Query(
+      value =
+          """
+          SELECT
+            COUNT(t.id) AS "totalTransactions",
+            COALESCE(AVG(fs.ensemble_score), 0) AS "averageScore",
+            COALESCE(SUM(CASE WHEN fs.risk_level IN ('high', 'critical') THEN 1 ELSE 0 END), 0)
+              AS "flaggedCount",
+            COALESCE(SUM(t.amount), 0) AS "totalAmountProcessed"
+          FROM transactions t
+          LEFT JOIN fraud_scores fs ON fs.transaction_id = t.id
+          WHERE t.tenant_id = :tenantId
+          """,
+      nativeQuery = true)
+  TransactionStatsProjection aggregateStats(@Param("tenantId") String tenantId);
 }
