@@ -52,6 +52,8 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/scoring/batch:
     post:
@@ -87,6 +89,8 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/scoring/health:
     get:
@@ -154,3 +158,5 @@ components:
       $ref: './shared/errors.yaml#/UnprocessableEntity'
     InternalServerError:
       $ref: './shared/errors.yaml#/InternalServerError'
+    ServiceUnavailable:
+      $ref: './shared/errors.yaml#/ServiceUnavailable'
