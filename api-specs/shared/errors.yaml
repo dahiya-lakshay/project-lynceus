@@ -83,3 +83,13 @@ InternalServerError:
     application/json:
       schema:
         $ref: '#/ErrorResponse'
+
+ServiceUnavailable:
+  description: >-
+    A required downstream dependency is not ready (e.g. a service is running
+    in degraded mode because no ML model is currently loaded). Distinct from
+    500: this is a known, typically transient state, not a bug.
+  content:
+    application/json:
+      schema:
+        $ref: '#/ErrorResponse'
