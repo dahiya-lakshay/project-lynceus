@@ -1,0 +1,70 @@
+# Creates the transactions table.
+#
+# Phase 1 deviations from the architecture doc (docs/BRD_specs.md section 8),
+# per docs/implementation_plan_phase-1.md Task 3:
+#   - No `PARTITION BY RANGE (created_at)` — plain table. We add monthly
+#     partitioning in Phase 2 once there's enough data volume to justify it.
+#   - `updated_at TIMESTAMPTZ DEFAULT NOW()` is added even though the
+#     architecture doc's raw SQL omits it — the implementation plan requires
+#     created_at/updated_at on every table (see AGENTS.md Database
+#     Conventions), and the doc's omission looks like an oversight there.
+#
+# NOT NULL is added to currency, merchant_name, merchant_category, is_online,
+# is_foreign, channel, created_at, and updated_at to match the required-field
+# list on the Transaction schema in api-specs/shared/schemas/transaction.yaml
+# exactly — the DB contract must be at least as strict as what the API
+# already promises callers is always present. merchant_id, location_lat/lng,
+# country_code, device_id, ip_address, and metadata stay nullable: the API
+# schema doesn't require them.
+#
+# A raw `sql` changeset is used instead of Liquibase's structured
+# `createTable` because createTable has no clean way to express a Postgres
+# `GENERATED ALWAYS AS (...) STORED` column.
+databaseChangeLog:
+  - changeSet:
+      id: 20260802-01-01
+      author: lynceus
+      comment: Create transactions table (Phase 1 — no partitioning, updated_at added)
+      changes:
+        - sql:
+            splitStatements: true
+            sql: |
+              CREATE TABLE transactions (
+                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                  tenant_id VARCHAR(50) NOT NULL,
+                  customer_id UUID NOT NULL,
+                  amount DECIMAL(15, 2) NOT NULL,
+                  currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                  merchant_name VARCHAR(255) NOT NULL,
+                  merchant_category VARCHAR(100) NOT NULL,
+                  merchant_id VARCHAR(100),
+                  location_lat DECIMAL(10, 7),
+                  location_lng DECIMAL(10, 7),
+                  country_code VARCHAR(3),
+                  is_online BOOLEAN NOT NULL DEFAULT FALSE,
+                  is_foreign BOOLEAN NOT NULL DEFAULT FALSE,
+                  channel VARCHAR(50) NOT NULL,
+                  device_id VARCHAR(100),
+                  ip_address INET,
+                  metadata JSONB,
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+                  -- Generated column for amount bucketing. Lets dashboard/analytics
+                  -- queries filter or group by bucket without recomputing the CASE
+                  -- expression, and keeps the bucketing logic in one place (the
+                  -- schema) rather than duplicated across services.
+                  amount_bucket VARCHAR(20) GENERATED ALWAYS AS (
+                      CASE
+                          WHEN amount < 50 THEN 'micro'
+                          WHEN amount < 500 THEN 'small'
+                          WHEN amount < 5000 THEN 'medium'
+                          WHEN amount < 50000 THEN 'large'
+                          ELSE 'whale'
+                      END
+                  ) STORED
+              );
+        - sql:
+            sql: >-
+              COMMENT ON COLUMN transactions.channel IS
+              'pos, atm, online, mobile';
