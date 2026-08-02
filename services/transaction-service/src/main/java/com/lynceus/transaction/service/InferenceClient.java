@@ -61,16 +61,18 @@ public class InferenceClient {
       // Connection refused, DNS failure, or connect/read timeout — the inference service is
       // unreachable or too slow.
       log.warn(
-          "Inference service unreachable while scoring transaction {}: {}",
+          "Inference service unreachable while scoring transaction {} for tenant {}: {}",
           request.transactionId(),
+          tenantId,
           ex.getMessage());
       return Optional.empty();
     } catch (HttpServerErrorException ex) {
       // 5xx from the inference service, including 503 when its model isn't loaded yet.
       log.warn(
-          "Inference service returned {} while scoring transaction {}: {}",
+          "Inference service returned {} while scoring transaction {} for tenant {}: {}",
           ex.getStatusCode(),
           request.transactionId(),
+          tenantId,
           ex.getMessage());
       return Optional.empty();
     } catch (RestClientException ex) {
@@ -79,8 +81,9 @@ public class InferenceClient {
       // gracefully rather than failing the transaction write — an unscored transaction beats
       // a lost one.
       log.warn(
-          "Unexpected error calling inference service for transaction {}: {}",
+          "Unexpected error calling inference service for transaction {} for tenant {}: {}",
           request.transactionId(),
+          tenantId,
           ex.getMessage());
       return Optional.empty();
     }
