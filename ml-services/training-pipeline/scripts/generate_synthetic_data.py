@@ -87,10 +87,30 @@ _ONLINE_PROBABILITY: dict[str, float] = {
 # indistinguishable from normal activity instead of a genuine anomaly.
 _HOUR_WEIGHTS = np.array(
     [
-        0.2, 0.15, 0.1, 0.1, 0.1, 0.2,  # 00:00-05:59
-        0.8, 1.5, 2.0, 2.2, 2.0, 2.5,  # 06:00-11:59
-        3.0, 2.5, 2.0, 2.0, 2.2, 2.5,  # 12:00-17:59
-        3.2, 3.0, 2.5, 2.0, 1.5, 1.0,  # 18:00-23:59
+        0.2,
+        0.15,
+        0.1,
+        0.1,
+        0.1,
+        0.2,  # 00:00-05:59
+        0.8,
+        1.5,
+        2.0,
+        2.2,
+        2.0,
+        2.5,  # 06:00-11:59
+        3.0,
+        2.5,
+        2.0,
+        2.0,
+        2.2,
+        2.5,  # 12:00-17:59
+        3.2,
+        3.0,
+        2.5,
+        2.0,
+        1.5,
+        1.0,  # 18:00-23:59
     ]
 )
 _HOUR_WEIGHTS = _HOUR_WEIGHTS / _HOUR_WEIGHTS.sum()
@@ -153,7 +173,9 @@ def _pick_channel(is_online: bool, rng: np.random.Generator) -> str:
     return "in_store" if rng.random() < 0.85 else "atm"
 
 
-def build_customers(num_customers: int, categories: list[str], rng: np.random.Generator) -> list[Customer]:
+def build_customers(
+    num_customers: int, categories: list[str], rng: np.random.Generator
+) -> list[Customer]:
     """Generates customer spending profiles: mean/std amount, home location,
     a weighted subset of preferred categories, and 1-2 devices.
 
@@ -197,7 +219,9 @@ def build_customers(num_customers: int, categories: list[str], rng: np.random.Ge
     return customers
 
 
-def build_merchant_pool(categories: list[str], per_category: int = _MERCHANTS_PER_CATEGORY) -> dict[str, list[tuple[str, str]]]:
+def build_merchant_pool(
+    categories: list[str], per_category: int = _MERCHANTS_PER_CATEGORY
+) -> dict[str, list[tuple[str, str]]]:
     """A fixed pool of (merchant_id, merchant_name) per category, shared across
     all customers — real transaction data has repeat merchants, not a unique
     merchant per transaction.
@@ -212,7 +236,9 @@ def build_merchant_pool(categories: list[str], per_category: int = _MERCHANTS_PE
     return pool
 
 
-def _pick_merchant(pool: dict[str, list[tuple[str, str]]], category: str, rng: np.random.Generator) -> tuple[str, str]:
+def _pick_merchant(
+    pool: dict[str, list[tuple[str, str]]], category: str, rng: np.random.Generator
+) -> tuple[str, str]:
     options = pool[category]
     return options[int(rng.integers(len(options)))]
 
@@ -383,7 +409,9 @@ def make_velocity_burst_cluster(
     """
     window_hours = pattern_cfg["window_hours"]
     latest_start = end - timedelta(hours=window_hours + 1)
-    burst_start = _random_timestamp_diurnal(rng, start, latest_start if latest_start > start else start)
+    burst_start = _random_timestamp_diurnal(
+        rng, start, latest_start if latest_start > start else start
+    )
     rows = []
     for _ in range(size):
         offset_minutes = float(rng.uniform(0, window_hours * 60))
@@ -436,7 +464,9 @@ def make_geo_impossibility_pair(
     min_distance_km = pattern_cfg["min_distance_km"]
 
     latest_start = end - timedelta(hours=max_time_hours + 1)
-    prev_timestamp = _random_timestamp_diurnal(rng, start, latest_start if latest_start > start else start)
+    prev_timestamp = _random_timestamp_diurnal(
+        rng, start, latest_start if latest_start > start else start
+    )
     prev_category = str(rng.choice(customer.preferred_categories, p=customer.category_weights))
     prev_merchant_id, prev_merchant_name = _pick_merchant(merchants, prev_category, rng)
     prev_amount = float(rng.normal(customer.mean_amount, customer.std_amount))
@@ -468,7 +498,9 @@ def make_geo_impossibility_pair(
     for _ in range(len(_FOREIGN_LOCATIONS)):
         if haversine_km(prev_lat, prev_lng, far_lat, far_lng) >= min_distance_km:
             break
-        far_lat, far_lng, far_country = _FOREIGN_LOCATIONS[int(rng.integers(len(_FOREIGN_LOCATIONS)))]
+        far_lat, far_lng, far_country = _FOREIGN_LOCATIONS[
+            int(rng.integers(len(_FOREIGN_LOCATIONS)))
+        ]
 
     delta_minutes = float(rng.uniform(5, max_time_hours * 60))
     fraud_timestamp = prev_timestamp + timedelta(minutes=delta_minutes)
@@ -641,13 +673,19 @@ def generate_dataset(config: dict[str, Any], rng: np.random.Generator) -> pd.Dat
     for _ in range(targets["high_amount"]):
         customer = customers[int(rng.integers(len(customers)))]
         rows.append(
-            make_high_amount_fraud(customer, merchants, fraud_patterns_cfg["high_amount"], rng, start, end)
+            make_high_amount_fraud(
+                customer, merchants, fraud_patterns_cfg["high_amount"], rng, start, end
+            )
         )
 
     remaining = targets["velocity_burst"]
     min_burst = fraud_patterns_cfg["velocity_burst"]["min_transactions"]
     while remaining > 0:
-        size = min(min_burst + int(rng.integers(0, 3)), remaining) if remaining >= min_burst else remaining
+        size = (
+            min(min_burst + int(rng.integers(0, 3)), remaining)
+            if remaining >= min_burst
+            else remaining
+        )
         size = max(size, 1)
         customer = customers[int(rng.integers(len(customers)))]
         rows.extend(
@@ -694,7 +732,9 @@ def generate_dataset(config: dict[str, Any], rng: np.random.Generator) -> pd.Dat
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=_DEFAULT_CONFIG_PATH, help="Path to data_generation.yaml")
+    parser.add_argument(
+        "--config", type=Path, default=_DEFAULT_CONFIG_PATH, help="Path to data_generation.yaml"
+    )
     parser.add_argument("--output", type=Path, default=_DEFAULT_OUTPUT_PATH, help="Output CSV path")
     parser.add_argument(
         "--seed-db",
@@ -702,8 +742,12 @@ def parse_args() -> argparse.Namespace:
         help="After generating, also bulk-load the CSV into Postgres via seed_database.py",
     )
     parser.add_argument("--seed", type=int, default=None, help="Override the config's RNG seed")
-    parser.add_argument("--num-customers", type=int, default=None, help="Override generation.num_customers")
-    parser.add_argument("--num-transactions", type=int, default=None, help="Override generation.num_transactions")
+    parser.add_argument(
+        "--num-customers", type=int, default=None, help="Override generation.num_customers"
+    )
+    parser.add_argument(
+        "--num-transactions", type=int, default=None, help="Override generation.num_transactions"
+    )
     return parser.parse_args()
 
 

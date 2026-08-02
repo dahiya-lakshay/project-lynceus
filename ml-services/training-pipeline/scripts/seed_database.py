@@ -101,7 +101,9 @@ def seed_from_csv(csv_path: Path, *, connection_string: str | None = None) -> in
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--csv", type=Path, default=_DEFAULT_CSV_PATH, help="Synthetic transactions CSV to load")
+    parser.add_argument(
+        "--csv", type=Path, default=_DEFAULT_CSV_PATH, help="Synthetic transactions CSV to load"
+    )
     return parser.parse_args()
 
 

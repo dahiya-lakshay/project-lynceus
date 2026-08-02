@@ -25,12 +25,11 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from inference_service.models import FEATURE_COLUMNS, IsolationForestModel, extract_features
+from inference_service.schemas.scoring import Channel, MerchantCategory, ScoreTransactionRequest
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
-
-from inference_service.models import FEATURE_COLUMNS, IsolationForestModel, extract_features
-from inference_service.schemas.scoring import Channel, MerchantCategory, ScoreTransactionRequest
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PACKAGE_DIR = _SCRIPT_DIR.parent
@@ -103,14 +102,19 @@ def evaluate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=_DEFAULT_INPUT_PATH, help="Synthetic transactions CSV")
+    parser.add_argument(
+        "--input", type=Path, default=_DEFAULT_INPUT_PATH, help="Synthetic transactions CSV"
+    )
     parser.add_argument("--model-output", type=Path, default=_DEFAULT_MODEL_OUTPUT_PATH)
-    parser.add_argument("--feature-columns-output", type=Path, default=_DEFAULT_FEATURE_COLUMNS_OUTPUT_PATH)
+    parser.add_argument(
+        "--feature-columns-output", type=Path, default=_DEFAULT_FEATURE_COLUMNS_OUTPUT_PATH
+    )
     parser.add_argument(
         "--model-version",
         type=str,
         default="isolation-forest-v1",
-        help="Version tag recorded alongside the model (matches LYNCEUS_INFERENCE_MODEL_VERSION at serve time)",
+        help="Version tag recorded alongside the model (matches "
+        "LYNCEUS_INFERENCE_MODEL_VERSION at serve time)",
     )
     return parser.parse_args()
 
@@ -126,7 +130,7 @@ def main() -> None:
             "output, not a real transactions export (which has no fraud label)."
         )
 
-    print(f"Extracting features for {len(dataframe)} rows via inference_service.models.extract_features ...")
+    print(f"Extracting features for {len(dataframe)} rows via inference_service extract_features()")
     features = build_feature_matrix(dataframe)
     labels = dataframe["is_fraud"].astype(int).to_numpy()
 
@@ -154,7 +158,9 @@ def main() -> None:
 
     metrics = evaluate(estimator, args.model_version, x_test, y_test)
 
-    print("\n=== Evaluation (held-out test set, n={} rows, {} fraud) ===".format(len(y_test), int(y_test.sum())))
+    print(
+        f"\n=== Evaluation (held-out test set, n={len(y_test)} rows, {int(y_test.sum())} fraud) ==="
+    )
     print(f"  Precision @ {_CLASSIFICATION_THRESHOLD}: {metrics['precision']:.4f}")
     print(f"  Recall    @ {_CLASSIFICATION_THRESHOLD}: {metrics['recall']:.4f}")
     print(f"  F1        @ {_CLASSIFICATION_THRESHOLD}: {metrics['f1']:.4f}")
