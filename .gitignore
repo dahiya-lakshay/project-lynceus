@@ -5,7 +5,10 @@
 *.ear
 build/
 .gradle/
-!gradle/wrapper/gradle-wrapper.jar
+# Anchored patterns with internal slashes only match at the repo root, so this must be a
+# **/-prefixed glob to also un-ignore services/gradle/wrapper/gradle-wrapper.jar (and any
+# future Java module's wrapper jar, e.g. flink-jobs/) despite the blanket *.jar rule above.
+!**/gradle/wrapper/gradle-wrapper.jar
 out/
 
 # === Python ===

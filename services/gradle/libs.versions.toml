@@ -1,0 +1,42 @@
+# Version catalog for the Lynceus Java multi-module build.
+#
+# Central place to pin dependency and plugin versions so every module (and
+# every future service added in Phase 2+) resolves the same coordinates.
+# Update here rather than hardcoding versions in individual build.gradle.kts
+# files.
+
+[versions]
+spring-boot = "3.4.1"
+spring-dependency-management = "1.1.7"
+lombok = "1.18.36"
+mapstruct = "1.6.3"
+liquibase = "4.29.2"
+postgresql-driver = "42.7.4"
+spotless = "7.0.1"
+testcontainers = "1.20.4"
+junit = "5.11.4"
+mockito = "5.14.2"
+slf4j = "2.0.16"
+jakarta-validation = "3.1.0"
+jackson = "2.18.2"
+hibernate-validator = "8.0.2.Final"
+glassfish-expressly = "5.0.0"
+
+[libraries]
+lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
+mapstruct = { module = "org.mapstruct:mapstruct", version.ref = "mapstruct" }
+mapstruct-processor = { module = "org.mapstruct:mapstruct-processor", version.ref = "mapstruct" }
+postgresql-driver = { module = "org.postgresql:postgresql", version.ref = "postgresql-driver" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+jakarta-validation-api = { module = "jakarta.validation:jakarta.validation-api", version.ref = "jakarta-validation" }
+jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
+hibernate-validator = { module = "org.hibernate.validator:hibernate-validator", version.ref = "hibernate-validator" }
+glassfish-expressly = { module = "org.glassfish.expressly:expressly", version.ref = "glassfish-expressly" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
