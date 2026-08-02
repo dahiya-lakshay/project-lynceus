@@ -18,6 +18,7 @@ import com.lynceus.shared.dto.TransactionDto;
 import com.lynceus.shared.dto.TransactionSummaryDto;
 import com.lynceus.shared.exception.GlobalExceptionHandler;
 import com.lynceus.shared.exception.ResourceNotFoundException;
+import com.lynceus.transaction.exception.TransactionExceptionHandler;
 import com.lynceus.transaction.service.TransactionService;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -37,10 +38,14 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code @WebMvcTest} slice for {@link TransactionController} — the service layer is mocked, this
  * only exercises request/response mapping, validation, and status codes. {@link
  * GlobalExceptionHandler} is imported explicitly since {@code @WebMvcTest} only auto-scans
- * controller-layer beans in the test's own package tree by default, not shared-lib's advice.
+ * controller-layer beans in the test's own package tree by default, not shared-lib's advice. {@link
+ * TransactionExceptionHandler} is imported explicitly too (rather than relying on @WebMvcTest's
+ * same-package-tree auto-detection) so its @Order(HIGHEST_PRECEDENCE) — and therefore precedence
+ * over GlobalExceptionHandler's catch-all — is exercised exactly as it will be in the real
+ * application context.
  */
 @WebMvcTest(TransactionController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, TransactionExceptionHandler.class})
 class TransactionControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -143,5 +148,44 @@ class TransactionControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.total").value(1))
         .andExpect(jsonPath("$.items[0].merchant_name").value("Test Store"));
+  }
+
+  // page/page_size violate their @Min/@Max bounds via Spring's method-level validation
+  // (@Validated on the controller), which raises HandlerMethodValidationException on Spring
+  // Boot 3.4+ — a different exception type than the @RequestBody bean-validation failures
+  // GlobalExceptionHandler's MethodArgumentNotValidException handler covers. Without
+  // TransactionExceptionHandler's more specific handler taking precedence,
+  // GlobalExceptionHandler's blanket Exception.class catch-all claims it first and returns 500
+  // instead of 400.
+  @Test
+  void listTransactions_withPageBelowMinimum_returnsBadRequest() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/transactions").header("X-Tenant-Id", "default").param("page", "0"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+  }
+
+  @Test
+  void listTransactions_withPageSizeAboveMaximum_returnsBadRequest() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/transactions").header("X-Tenant-Id", "default").param("page_size", "101"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+  }
+
+  // An invalid risk_level fails Spring's String -> RiskLevel enum conversion before the
+  // handler method is even invoked (MethodArgumentTypeMismatchException), not a bean-validation
+  // failure — covered by the same TransactionExceptionHandler, same precedence-over-the-shared
+  // -catch-all concern as the page/page_size cases above.
+  @Test
+  void listTransactions_withInvalidRiskLevel_returnsBadRequest() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/transactions")
+                .header("X-Tenant-Id", "default")
+                .param("risk_level", "not-a-real-risk-level"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
   }
 }
