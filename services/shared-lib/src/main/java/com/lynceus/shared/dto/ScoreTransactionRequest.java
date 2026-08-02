@@ -2,7 +2,7 @@ package com.lynceus.shared.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -19,7 +19,8 @@ import java.util.UUID;
  * @param transactionId identifier of the transaction being scored
  * @param tenantId identifier of the owning tenant
  * @param customerId identifier of the customer the transaction belongs to
- * @param amount transaction amount
+ * @param amount transaction amount; matches the spec's {@code minimum: 0} bound exactly — zero is a
+ *     legitimate value (e.g. a $0 authorization/verification transaction)
  * @param merchantCategory merchant category classification used for feature engineering
  * @param isOnline whether the transaction was performed online (card-not-present)
  * @param isForeign whether the transaction originated outside the customer's home country
@@ -30,9 +31,9 @@ public record ScoreTransactionRequest(
     @NotNull @JsonProperty("transaction_id") UUID transactionId,
     @NotNull @JsonProperty("tenant_id") String tenantId,
     @NotNull @JsonProperty("customer_id") UUID customerId,
-    @NotNull @Positive BigDecimal amount,
-    @NotNull @JsonProperty("merchant_category") String merchantCategory,
+    @NotNull @PositiveOrZero BigDecimal amount,
+    @NotNull @JsonProperty("merchant_category") MerchantCategory merchantCategory,
     @NotNull @JsonProperty("is_online") Boolean isOnline,
     @NotNull @JsonProperty("is_foreign") Boolean isForeign,
-    @NotNull String channel,
+    @NotNull Channel channel,
     @NotNull @JsonProperty("transaction_timestamp") Instant transactionTimestamp) {}

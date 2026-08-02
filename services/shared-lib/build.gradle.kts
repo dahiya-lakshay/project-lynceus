@@ -37,4 +37,12 @@ dependencies {
 
     testImplementation(libs.hibernate.validator)
     testImplementation(libs.glassfish.expressly)
+
+    // Production code only ever touches jackson-annotations (see the api() dependency
+    // above) — DTOs are annotated but never serialized inside shared-lib itself, that
+    // happens in each consuming service. jackson-databind is test-only here, purely to
+    // prove the @JsonProperty snake_case mappings actually round-trip correctly rather
+    // than leaving that as a manually-verified assumption.
+    testImplementation("com.fasterxml.jackson.core:jackson-databind")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 }
