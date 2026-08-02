@@ -22,8 +22,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - lynceus-pgdata:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -41,13 +43,24 @@ services:
     container_name: lynceus-redis
     restart: unless-stopped
     env_file: .env
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # requirepass is set via the mounted redis.conf (copy redis.conf.example
+    # first), not `--requirepass` on the command line: Compose bakes CLI args
+    # verbatim into Config.Cmd, which is visible in plaintext to anything that
+    # can `docker inspect`/`docker top` the container. A mounted file avoids
+    # that permanent exposure. AOF persistence (also set in redis.conf)
+    # survives container restarts.
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - lynceus-redisdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      # REDISCLI_AUTH keeps the password out of argv (unlike `redis-cli -a
+      # <password>`), so it doesn't leak via `ps`/`docker top` on every poll.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -149,10 +162,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${NGINX_PORT:-8080}:8080"
+    # NGINX resolves its `upstream` blocks once at config-load time, not
+    # per-request — if any upstream host isn't yet registered on the Docker
+    # network when nginx starts, it exits immediately with "host not found
+    # in upstream". All four upstreams (including the slow-to-build Next.js
+    # frontend) must be healthy before nginx starts.
     depends_on:
       transaction-service:
         condition: service_healthy
+      inference-service:
+        condition: service_healthy
       dashboard-bff:
+        condition: service_healthy
+      frontend:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]

@@ -18,8 +18,10 @@ services:
     # pg_stat_statements must be preloaded to track query stats after the
     # extension is created by init.sql.
     command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - lynceus-pgdata:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -37,15 +39,24 @@ services:
     container_name: lynceus-redis
     restart: unless-stopped
     env_file: .env
-    # AOF persistence survives container restarts; requirepass protects the
-    # feature-store cache since it will hold tenant-scoped data in Phase 2+.
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # requirepass is set via the mounted redis.conf (copy redis.conf.example
+    # first), not `--requirepass` on the command line: Compose bakes CLI args
+    # verbatim into Config.Cmd, which is visible in plaintext to anything that
+    # can `docker inspect`/`docker top` the container. A mounted file avoids
+    # that permanent exposure. AOF persistence (also set in redis.conf)
+    # survives container restarts.
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    # Bind to loopback only — the example dev password is the only thing
+    # protecting this otherwise, and there's no reason to expose it to the LAN.
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - lynceus-redisdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      # REDISCLI_AUTH keeps the password out of argv (unlike `redis-cli -a
+      # <password>`), so it doesn't leak via `ps`/`docker top` on every poll.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
