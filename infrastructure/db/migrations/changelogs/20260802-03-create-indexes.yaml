@@ -1,0 +1,83 @@
+# Indexes supporting Phase 1 dashboard queries, customer lookups, analytics,
+# JSONB metadata search, and fraud-score joins/filtering.
+#
+# GIN index on transactions.metadata is created via a raw sql changeset
+# because Liquibase's structured createIndex doesn't support specifying the
+# GIN access method cleanly.
+databaseChangeLog:
+  - changeSet:
+      id: 20260802-03-01
+      author: lynceus
+      comment: Index for dashboard queries (recent transactions per tenant)
+      changes:
+        - createIndex:
+            indexName: idx_txn_tenant_created
+            tableName: transactions
+            columns:
+              - column:
+                  name: tenant_id
+              - column:
+                  name: created_at
+                  descending: true
+
+  - changeSet:
+      id: 20260802-03-02
+      author: lynceus
+      comment: Index for customer transaction lookups
+      changes:
+        - createIndex:
+            indexName: idx_txn_tenant_customer
+            tableName: transactions
+            columns:
+              - column:
+                  name: tenant_id
+              - column:
+                  name: customer_id
+
+  - changeSet:
+      id: 20260802-03-03
+      author: lynceus
+      comment: Index for merchant category analytics
+      changes:
+        - createIndex:
+            indexName: idx_txn_merchant_cat
+            tableName: transactions
+            columns:
+              - column:
+                  name: tenant_id
+              - column:
+                  name: merchant_category
+
+  - changeSet:
+      id: 20260802-03-04
+      author: lynceus
+      comment: GIN index for JSONB metadata queries
+      changes:
+        - sql:
+            sql: CREATE INDEX idx_txn_metadata ON transactions USING GIN (metadata);
+
+  - changeSet:
+      id: 20260802-03-05
+      author: lynceus
+      comment: Index for fraud score to transaction join optimization
+      changes:
+        - createIndex:
+            indexName: idx_fraud_scores_txn
+            tableName: fraud_scores
+            columns:
+              - column:
+                  name: transaction_id
+
+  - changeSet:
+      id: 20260802-03-06
+      author: lynceus
+      comment: Index for alert filtering by tenant and risk level
+      changes:
+        - createIndex:
+            indexName: idx_fraud_scores_tenant_risk
+            tableName: fraud_scores
+            columns:
+              - column:
+                  name: tenant_id
+              - column:
+                  name: risk_level
