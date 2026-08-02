@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  java-lint-test:
+    name: Java — Lint & Test
+    runs-on: ubuntu-latest
+    # No `services:` block for Postgres/Redis here — verified against the actual
+    # test suite (Task 6/7 transaction-service, Task 8 dashboard-bff) that nothing
+    # needs one:
+    #   - TransactionServiceIntegrationTest / TransactionStatsIntegrationTest are
+    #     the only @SpringBootTest classes with a real datastore, and both are
+    #     @Testcontainers-based: each spins up its own ephemeral postgres:17-alpine
+    #     + redis:7-alpine container and points Spring at it via
+    #     @DynamicPropertySource, so a POSTGRES_HOST/REDIS_HOST-style shared
+    #     service container is never touched. GitHub-hosted ubuntu runners ship
+    #     Docker already, which is all Testcontainers needs.
+    #   - Every other test class (dashboard-bff, shared-lib, and the
+    #     controller/service tests in transaction-service) is a plain Mockito unit
+    #     test with no Spring context at all.
+    #   - The `CREATE EXTENSION pg_stat_statements` call the task brief pointed at
+    #     lives in infrastructure/docker/postgres/init.sql, which only
+    #     docker-entrypoint-initdb.d-mounts into the docker-compose-managed
+    #     pgvector/pgvector:pg17 container (docker-compose.yml /
+    #     docker-compose.infra.yml) — it is NOT part of any Liquibase changelog
+    #     under services/transaction-service/src/main/resources/db/changelog, so
+    #     it never runs against Testcontainers' vanilla postgres:17-alpine either.
+    #     The shared_preload_libraries "how do I pass -c flags through GitHub
+    #     Actions' services: block" problem the brief anticipated therefore has no
+    #     actual test to solve it for on this codebase as it stands today. If a
+    #     future test needs a long-lived shared Postgres service with
+    #     pg_stat_statements preloaded, the right fix is a custom image
+    #     (`FROM pgvector/pgvector:pg17` + `CMD ["postgres", "-c",
+    #     "shared_preload_libraries=pg_stat_statements"]`, published to GHCR) —
+    #     GitHub Actions' `services:` block only forwards `options:` as `docker
+    #     create` flags, it can't override the container's CMD the way Compose's
+    #     `command:` does.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Lint
+        run: ./gradlew spotlessCheck
+        working-directory: services
+
+      - name: Test
+        run: ./gradlew test
+        working-directory: services
+
+  python-lint-test:
+    name: Python — Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      # Ruff runs from ml-services/ so it covers both inference-service and
+      # training-pipeline in one pass (each has its own [tool.ruff] section that
+      # ruff picks up per-file from the nearest ancestor pyproject.toml).
+      - name: Lint
+        run: uvx ruff check .
+        working-directory: ml-services
+
+      - name: Install inference-service
+        run: uv venv && uv pip install -e ".[dev]"
+        working-directory: ml-services/inference-service
+
+      - name: Type check inference-service
+        run: .venv/bin/mypy src/
+        working-directory: ml-services/inference-service
+
+      - name: Test inference-service
+        run: .venv/bin/pytest tests/ -v
+        working-directory: ml-services/inference-service
+
+      # training-pipeline has its own real unit test suite
+      # (tests/unit/test_generate_synthetic_data.py) — the original CI sketch this
+      # was drafted from only covered inference-service; adding this closes that
+      # gap rather than silently skipping the other Python package under
+      # ml-services/. It depends on inference-service as an editable local path
+      # (see its pyproject.toml [tool.uv.sources]), so inference-service must
+      # already exist on disk, which the checkout above guarantees.
+      - name: Install training-pipeline
+        run: uv venv && uv pip install -e ".[dev]"
+        working-directory: ml-services/training-pipeline
+
+      - name: Test training-pipeline
+        run: .venv/bin/pytest tests/ -v
+        working-directory: ml-services/training-pipeline
+
+  frontend-lint-test:
+    name: Frontend — Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version matches frontend/package.json's "packageManager": "pnpm@9.15.9"
+      # (the version pnpm-lock.yaml was generated with), which
+      # --frozen-lockfile below relies on matching.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Lint
+        run: pnpm lint
+        working-directory: frontend
+
+      - name: Type check
+        run: pnpm type-check
+        working-directory: frontend
+
+      # /overview and /transactions are both server-rendered on demand (ƒ), not
+      # statically prerendered (○) — confirmed via a local `pnpm build` — because
+      # every BFF fetch in lib/api.ts on those routes uses either
+      # `cache: "no-store"` or a short `next: { revalidate }` window, which opts
+      # the whole route out of static generation. `next build` never actually
+      # invokes them at build time, so no live dashboard-bff is needed here.
+      - name: Build
+        run: pnpm build
+        working-directory: frontend
+
+  docker-build:
+    name: Docker — Build Images
+    runs-on: ubuntu-latest
+    needs: [java-lint-test, python-lint-test, frontend-lint-test]
+    strategy:
+      matrix:
+        service:
+          - { name: transaction-service, context: services, dockerfile: services/transaction-service/Dockerfile }
+          - { name: inference-service, context: ml-services/inference-service, dockerfile: ml-services/inference-service/Dockerfile }
+          - { name: dashboard-bff, context: services, dockerfile: services/dashboard-bff/Dockerfile }
+          - { name: frontend, context: frontend, dockerfile: frontend/apps/dashboard/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: false
+          tags: lynceus/${{ matrix.service.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+  api-specs:
+    name: Validate OpenAPI Specs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate specs
+        run: npx --yes @redocly/cli lint api-specs/*.yaml
