@@ -126,8 +126,19 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    # python:3.12-slim has no wget/curl (unlike the Alpine-based images used
+    # elsewhere), so the healthcheck shells out to Python + httpx instead —
+    # both already runtime dependencies of this service (see pyproject.toml),
+    # matching the HEALTHCHECK already defined in this service's own
+    # Dockerfile (which this compose-level override otherwise shadows).
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/api/v1/scoring/health || exit 1"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; httpx.get('http://localhost:8082/api/v1/scoring/health').raise_for_status()",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
