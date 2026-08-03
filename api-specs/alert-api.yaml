@@ -187,7 +187,13 @@ paths:
           the new severity's SLA policy. Passing severity explicitly lets an
           analyst jump straight to a target tier (e.g. escalate low directly
           to critical) rather than stepping through intermediate tiers one
-          call at a time.
+          call at a time — but this endpoint only ever moves severity up: an
+          explicit severity that is not strictly higher than the alert's
+          current severity is rejected (see the 409 response below).
+          De-escalating an alert's severity is out of scope for this verb in
+          Phase 2; a future phase that needs to lower severity should add a
+          distinct endpoint/verb rather than overload escalate to do it
+          silently.
         content:
           application/json:
             schema:
@@ -209,9 +215,16 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: >-
-            The alert is already at the highest severity tier (critical) and
-            no explicit target severity was provided, so there is no tier to
-            escalate to.
+            The requested escalation would not raise the alert's severity.
+            Two cases return this: (1) no explicit severity was provided and
+            the alert is already at the highest tier (critical), so there is
+            no next tier to escalate to; (2) an explicit severity was
+            provided but it is not strictly higher than the alert's current
+            severity. This endpoint only supports moving severity up —
+            passing a severity equal to or lower than the current tier is
+            rejected rather than silently de-escalating or no-op'ing the
+            alert; lowering severity is not supported by this endpoint in
+            Phase 2.
           content:
             application/json:
               schema:
@@ -357,7 +370,14 @@ components:
       description: Optional target severity for an explicit escalation. See the escalate endpoint's requestBody description for the default (no-body) behavior.
       properties:
         severity:
-          $ref: '#/components/schemas/AlertSeverity'
+          description: >-
+            Target severity tier. Must be strictly higher than the alert's
+            current severity (low < medium < high < critical) — this
+            endpoint only moves severity up. A value equal to or lower than
+            the current severity is rejected with a 409, not treated as a
+            de-escalation or a no-op.
+          allOf:
+            - $ref: '#/components/schemas/AlertSeverity'
         reason:
           type: string
           description: Optional free-text justification for the escalation, appended to resolution_notes for audit purposes.
