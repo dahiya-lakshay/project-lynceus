@@ -1,0 +1,423 @@
+# OpenAPI 3.1 contract for the Alert Service (Java / Spring Boot).
+# This spec is the source of truth for services/alert-service - written
+# before any implementation code exists, per AGENTS.md's API-First Design
+# principle. Do not change endpoint shapes here to match an implementation;
+# the implementation must conform to this contract.
+#
+# Alert Service is new in Phase 2, so unlike Phase 1's Bearer-stub-only
+# services, every endpoint here declares real Bearer JWT security from the
+# start. X-Tenant-Id is still required alongside it during Phase 2's
+# transitional period (services validate the JWT but the header remains the
+# mechanical way tenant scoping is threaded through requests today), matching
+# the same TenantIdHeader + BearerAuth pairing already established in
+# transaction-api.yaml and dashboard-bff-api.yaml.
+openapi: 3.1.0
+info:
+  title: Lynceus Alert Service API
+  version: 0.1.0
+  description: >-
+    Manages the fraud analyst alert queue: alerts are created when a
+    fraud.scored Kafka event crosses the tenant's alerting threshold, and
+    analysts work them through PATCH/escalate endpoints. Every request is
+    scoped to a single tenant via the X-Tenant-Id header.
+servers:
+  - url: http://localhost:8084
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Alerts
+    description: Query and manage the fraud analyst alert queue.
+
+paths:
+  /api/v1/alerts:
+    get:
+      tags: [Alerts]
+      operationId: listAlerts
+      summary: Paginated alert queue for the tenant, filterable by status, severity, assignment, and date range.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AlertStatus'
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AlertSeverity'
+        - name: assigned_to
+          in: query
+          required: false
+          description: Filter to alerts assigned to a specific analyst.
+          schema:
+            type: string
+        - name: date_from
+          in: query
+          required: false
+          description: Only include alerts created on or after this timestamp.
+          schema:
+            type: string
+            format: date-time
+        - name: date_to
+          in: query
+          required: false
+          description: Only include alerts created on or before this timestamp.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Paginated list of alerts matching the query.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/alerts/{id}:
+    get:
+      tags: [Alerts]
+      operationId: getAlert
+      summary: Retrieve a single alert with its full transaction/score context.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The requested alert.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [Alerts]
+      operationId: updateAlert
+      summary: Update an alert's status, assignment, and/or resolution notes (analyst workflow).
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAlertRequest'
+      responses:
+        '200':
+          description: The updated alert.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/alerts/{id}/escalate:
+    post:
+      tags: [Alerts]
+      operationId: escalateAlert
+      summary: Escalate an alert's severity and reset its SLA timer.
+      parameters:
+        - $ref: '#/components/parameters/TenantIdHeader'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        description: >-
+          Optional. When severity is omitted, the service escalates the alert
+          one tier up (e.g. medium -> high) and recomputes sla_deadline from
+          the new severity's SLA policy. Passing severity explicitly lets an
+          analyst jump straight to a target tier (e.g. escalate low directly
+          to critical) rather than stepping through intermediate tiers one
+          call at a time — but this endpoint only ever moves severity up: an
+          explicit severity that is not strictly higher than the alert's
+          current severity is rejected (see the 409 response below).
+          De-escalating an alert's severity is out of scope for this verb in
+          Phase 2; a future phase that needs to lower severity should add a
+          distinct endpoint/verb rather than overload escalate to do it
+          silently.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EscalateAlertRequest'
+      responses:
+        '200':
+          description: The escalated alert, with its new severity and reset SLA deadline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: >-
+            The requested escalation would not raise the alert's severity.
+            Two cases return this: (1) no explicit severity was provided and
+            the alert is already at the highest tier (critical), so there is
+            no next tier to escalate to; (2) an explicit severity was
+            provided but it is not strictly higher than the alert's current
+            severity. This endpoint only supports moving severity up —
+            passing a severity equal to or lower than the current tier is
+            rejected rather than silently de-escalating or no-op'ing the
+            alert; lowering severity is not supported by this endpoint in
+            Phase 2.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        JWT issued by Keycloak. NGINX validates the token at the gateway
+        before forwarding the request; services trust the tenant_id and
+        role claims already present on the token.
+
+  parameters:
+    TenantIdHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: Identifier of the tenant making the request.
+      schema:
+        type: string
+
+  schemas:
+    ErrorResponse:
+      $ref: './shared/errors.yaml#/ErrorResponse'
+
+    AlertSeverity:
+      type: string
+      description: Severity tier, mirroring the fraud score's risk_level at the time the alert was raised (or escalated to).
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+
+    AlertStatus:
+      type: string
+      description: Analyst workflow state of the alert.
+      enum:
+        - open
+        - investigating
+        - confirmed_fraud
+        - false_positive
+        - closed
+
+    Alert:
+      type: object
+      description: >-
+        A fraud alert raised when a scored transaction crosses the tenant's
+        alerting threshold, carrying the analyst workflow state through to
+        resolution.
+      required:
+        - id
+        - tenant_id
+        - transaction_id
+        - fraud_score_id
+        - severity
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique alert identifier.
+        tenant_id:
+          type: string
+          description: Identifier of the owning tenant (financial institution).
+        transaction_id:
+          type: string
+          format: uuid
+          description: Identifier of the transaction this alert was raised for.
+        fraud_score_id:
+          type: string
+          format: uuid
+          description: Identifier of the fraud score that triggered this alert.
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        assigned_to:
+          type:
+            - string
+            - 'null'
+          description: Identifier (username/email) of the analyst currently assigned to this alert. Null when unassigned.
+        resolution_notes:
+          type:
+            - string
+            - 'null'
+          description: Free-text notes an analyst records when investigating or resolving the alert. Null until first set.
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp the alert was raised.
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp the alert was last modified.
+        resolved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp the alert reached a terminal status (confirmed_fraud, false_positive, or closed). Null while open or investigating.
+        sla_deadline:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: >-
+            Deadline by which this alert must be actioned, auto-computed from
+            severity when the alert is created or escalated. Null if no SLA
+            policy applies.
+
+    UpdateAlertRequest:
+      type: object
+      description: >-
+        Partial update for the analyst workflow. All fields are optional -
+        only the fields present are changed; omitted fields are left as-is.
+      properties:
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        assigned_to:
+          type:
+            - string
+            - 'null'
+          description: Set to null to unassign the alert.
+        resolution_notes:
+          type:
+            - string
+            - 'null'
+          description: Replaces any existing resolution notes.
+
+    EscalateAlertRequest:
+      type: object
+      description: Optional target severity for an explicit escalation. See the escalate endpoint's requestBody description for the default (no-body) behavior.
+      properties:
+        severity:
+          description: >-
+            Target severity tier. Must be strictly higher than the alert's
+            current severity (low < medium < high < critical) — this
+            endpoint only moves severity up. A value equal to or lower than
+            the current severity is rejected with a 409, not treated as a
+            de-escalation or a no-op.
+          allOf:
+            - $ref: '#/components/schemas/AlertSeverity'
+        reason:
+          type: string
+          description: Optional free-text justification for the escalation, appended to resolution_notes for audit purposes.
+
+    AlertListResponse:
+      type: object
+      description: Paginated list of alerts.
+      required:
+        - items
+        - total
+        - page
+        - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of alerts matching the query, across all pages.
+        page:
+          type: integer
+          minimum: 1
+          description: Current page number (1-indexed).
+        page_size:
+          type: integer
+          minimum: 1
+          description: Number of items per page.
+
+  responses:
+    BadRequest:
+      $ref: './shared/errors.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './shared/errors.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './shared/errors.yaml#/Forbidden'
+    NotFound:
+      $ref: './shared/errors.yaml#/NotFound'
+    UnprocessableEntity:
+      $ref: './shared/errors.yaml#/UnprocessableEntity'
+    InternalServerError:
+      $ref: './shared/errors.yaml#/InternalServerError'

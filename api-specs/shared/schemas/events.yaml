@@ -1,0 +1,204 @@
+# Kafka message schemas for Phase 2's event-driven scoring pipeline. These are
+# not HTTP payloads - they're the wire format Transaction Service (Java
+# producer of transaction.created), Inference Service (Python consumer of
+# transaction.created, producer of fraud.scored), Alert Service and Dashboard
+# BFF (both Kafka consumers of fraud.scored) all serialize/deserialize
+# against. Kafka messages are a contract too, just not an HTTP one, so they
+# get the same API-first treatment as REST DTOs.
+#
+# Same bare, unwrapped-schema convention as transaction.yaml and
+# fraud-score.yaml: each top-level key here is a plain named JSON Schema
+# object, referenced directly via
+# `$ref: './shared/schemas/events.yaml#/<SchemaName>'` from producer/consumer
+# code and from any spec that needs to describe an event payload (e.g.
+# dashboard-bff-api.yaml's WebSocket contract, which reuses FraudScoredEvent
+# verbatim as its server-push message shape).
+
+EventEnvelope:
+  type: object
+  description: >-
+    Common envelope fields every Kafka event on this platform carries,
+    independent of its business payload. Event schemas extend this shape via
+    allOf rather than redefining event_id/event_type/occurred_at ad hoc, so
+    any consumer can inspect these three fields generically before dispatching
+    on event_type - this keeps future event types (beyond transaction.created
+    and fraud.scored) consistent without needing a new envelope convention.
+  required:
+    - event_id
+    - event_type
+    - occurred_at
+  properties:
+    event_id:
+      type: string
+      format: uuid
+      description: >-
+        Unique identifier for this event instance itself (not the
+        transaction/entity it describes) - useful for consumer-side
+        idempotency and dedup.
+    event_type:
+      type: string
+      description: >-
+        Discriminator identifying which event schema this message conforms
+        to. Individual event schemas narrow this to a const value.
+    occurred_at:
+      type: string
+      format: date-time
+      description: >-
+        Timestamp the event was emitted by its producer (envelope time).
+        Distinct from any business timestamp carried in the payload (e.g.
+        transaction_timestamp, scored_at), which reflects when the underlying
+        business fact happened, not when it was published to Kafka.
+
+TransactionCreatedEvent:
+  description: >-
+    Published by Transaction Service to the transaction.created topic
+    immediately after a transaction is persisted, replacing Phase 1's
+    synchronous HTTP call to Inference Service. Consumed by Inference Service
+    to trigger fraud scoring. Keyed by tenant_id:transaction_id so all events
+    for one transaction land on the same partition.
+  allOf:
+    - $ref: '#/EventEnvelope'
+    - type: object
+      required:
+        - event_type
+        - tenant_id
+        - transaction_id
+        - customer_id
+        - amount
+        - merchant_category
+        - is_online
+        - is_foreign
+        - channel
+        - transaction_timestamp
+      properties:
+        event_type:
+          type: string
+          const: transaction.created
+        tenant_id:
+          type: string
+          description: Identifier of the owning tenant (financial institution).
+        transaction_id:
+          type: string
+          format: uuid
+          description: Identifier of the transaction this event describes.
+        customer_id:
+          type: string
+          format: uuid
+          description: Identifier of the customer the transaction belongs to.
+        amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Transaction amount in the given currency's minor-agnostic decimal form.
+        merchant_category:
+          type: string
+          description: Merchant category classification used for feature engineering.
+          enum:
+            - grocery
+            - electronics
+            - gas_station
+            - restaurant
+            - online_shopping
+            - travel
+            - entertainment
+            - healthcare
+            - utilities
+            - clothing
+        is_online:
+          type: boolean
+          description: Whether the transaction was performed online (card-not-present).
+        is_foreign:
+          type: boolean
+          description: Whether the transaction originated outside the customer's home country.
+        channel:
+          type: string
+          description: Channel through which the transaction was initiated.
+          enum:
+            - online
+            - in_store
+            - atm
+            - mobile
+        transaction_timestamp:
+          type: string
+          format: date-time
+          description: >-
+            Business timestamp - when the transaction actually occurred, as
+            reported by the source system. Distinct from occurred_at, the
+            envelope's publish-time timestamp.
+
+FraudScoredEvent:
+  description: >-
+    Published by Inference Service to the fraud.scored topic once ensemble
+    scoring completes for a transaction. Consumed by Transaction Service (to
+    update the transaction's cached risk_level/fraud_score), Alert Service (to
+    create an Alert when risk crosses the alerting threshold), and Dashboard
+    BFF (to push to connected WebSocket clients scoped to the same tenant).
+    Keyed by tenant_id:transaction_id, same as transaction.created.
+  allOf:
+    - $ref: '#/EventEnvelope'
+    - type: object
+      required:
+        - event_type
+        - tenant_id
+        - transaction_id
+        - isolation_forest_score
+        - ensemble_score
+        - risk_level
+        - model_version
+        - feature_vector
+        - scored_at
+      properties:
+        event_type:
+          type: string
+          const: fraud.scored
+        tenant_id:
+          type: string
+          description: Identifier of the owning tenant (financial institution).
+        transaction_id:
+          type: string
+          format: uuid
+          description: Identifier of the transaction that was scored.
+        isolation_forest_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Anomaly probability from the Isolation Forest model.
+        autoencoder_score:
+          description: >-
+            Reconstruction-error-derived anomaly probability from the
+            Autoencoder model. Null when the autoencoder model was not
+            available at scoring time.
+          type:
+            - number
+            - 'null'
+          minimum: 0
+          maximum: 1
+        ensemble_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Combined fraud probability derived from all contributing models.
+        risk_level:
+          type: string
+          description: Risk tier derived from the ensemble score.
+          enum:
+            - low
+            - medium
+            - high
+            - critical
+        model_version:
+          type: string
+          description: >-
+            MLflow Model Registry run/version identifier the ensemble was
+            loaded from (e.g. "models:/fraud-ensemble/7") - Phase 2 replaces
+            Phase 1's hand-set version string with a real registry reference.
+        feature_vector:
+          type: object
+          description: Engineered feature values used as model input, for auditability.
+          additionalProperties: true
+        scored_at:
+          type: string
+          format: date-time
+          description: >-
+            Business timestamp - when the model actually produced this score.
+            Distinct from occurred_at, the envelope's publish-time timestamp.
