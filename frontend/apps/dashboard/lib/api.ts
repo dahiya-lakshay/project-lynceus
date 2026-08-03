@@ -16,8 +16,21 @@ import type {
 // The BFF's own port (8083) is only reachable container-to-container on the
 // compose network, not from the browser or from `next dev` on the host, so
 // this must stay the gateway URL, not the BFF's port directly.
+//
+// INTERNAL_API_URL (deliberately unprefixed, unlike NEXT_PUBLIC_API_URL) is
+// read live at request time on the server and is never inlined into the
+// browser bundle — it takes priority here because every current caller of
+// this module (the overview/transactions Server Components) runs
+// server-side, inside the frontend container, where the NGINX gateway URL
+// above doesn't resolve to anything (see docker-compose.yml's frontend
+// service comment for why routing SSR fetches through NGINX would
+// deadlock). A future client component importing this module still falls
+// back to NEXT_PUBLIC_API_URL, since INTERNAL_API_URL is never shipped to
+// the browser.
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
+  process.env.INTERNAL_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:8080/api/v1";
 
 // Phase 1 ships with no auth or tenant-selection UI — Keycloak and real
 // multi-tenancy land in Phase 2 (see docs/implementation_plan_phase-1.md's
