@@ -39,10 +39,21 @@ paths:
       responses:
         '202':
           description: >-
-            Transaction accepted for async processing. The transaction is
-            persisted and fraud scoring is in flight; risk_level and
-            fraud_score on the returned Transaction will be null until
-            scoring completes.
+            Transaction accepted for async processing. risk_level and
+            fraud_score on the returned Transaction are always null in this
+            response — Phase 2 scores transactions entirely asynchronously
+            via Kafka (Transaction Service publishes transaction.created;
+            Inference Service consumes it and publishes fraud.scored), so
+            there is no synchronous best-effort scoring window as there was
+            in Phase 1. There are no exceptions to this: even a very fast
+            downstream scoring pipeline cannot make risk_level non-null on
+            this response, because the response is written before the
+            transaction.created event is even published. Clients that need
+            the score should poll GET /api/v1/transactions/{id} until
+            risk_level is non-null, or use the dashboard's live feed (the
+            Dashboard BFF's WebSocket endpoint, which pushes each
+            fraud.scored event as it's consumed) — Phase 2 does not add a
+            webhook/callback mechanism.
           content:
             application/json:
               schema:
