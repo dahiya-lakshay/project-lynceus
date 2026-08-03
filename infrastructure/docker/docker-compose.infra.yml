@@ -64,6 +64,61 @@ services:
     networks:
       - lynceus-network
 
+  # Single-broker Kafka in KRaft mode (no ZooKeeper) — the standard topology
+  # for any new Kafka deployment in 2026 and simpler for a single-broker dev
+  # setup than running a separate ZooKeeper ensemble.
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: lynceus-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-9094}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: "lynceus-dev-cluster-1"
+    # Bind to loopback only, matching every other infra port in this project.
+    ports:
+      - "127.0.0.1:${KAFKA_HOST_PORT:-9094}:9094"
+    volumes:
+      - lynceus-kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - lynceus-network
+
+  # One-shot init container: creates the Phase 2 topics once the broker is
+  # healthy, then exits. Producer/consumer code lands in later tasks — this
+  # just stands up the broker + topic shapes.
+  kafka-init:
+    image: apache/kafka:3.8.0
+    container_name: lynceus-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic transaction.created --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.scored --partitions 3 --replication-factor 1 --config retention.ms=604800000 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.scored.dlq --partitions 1 --replication-factor 1 --config retention.ms=2592000000 &&
+      echo 'Topics created.'
+      "
+    networks:
+      - lynceus-network
+
 networks:
   lynceus-network:
     driver: bridge
@@ -71,3 +126,4 @@ networks:
 volumes:
   lynceus-pgdata:
   lynceus-redisdata:
+  lynceus-kafkadata:

@@ -40,6 +40,11 @@ jakarta-validation-api = { module = "jakarta.validation:jakarta.validation-api",
 jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
 hibernate-validator = { module = "org.hibernate.validator:hibernate-validator", version.ref = "hibernate-validator" }
 glassfish-expressly = { module = "org.glassfish.expressly:expressly", version.ref = "glassfish-expressly" }
+# No version.ref: spring-kafka is managed by the spring-boot-dependencies BOM
+# (imported via the spring-dependency-management plugin in each service), so
+# pinning a version here would risk drifting from whatever patch the Spring
+# Boot 3.4.x BOM actually ships.
+spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
