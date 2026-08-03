@@ -77,6 +77,20 @@ services:
       context: ../../services
       dockerfile: transaction-service/Dockerfile
     env_file: .env
+    # application.yml's datasource/redis URLs default to `localhost` for the
+    # bare `./gradlew bootRun` local-dev path (where infra ports are
+    # published to the host). On the Compose network there is no localhost
+    # Postgres/Redis — the container must reach them by service name. Port
+    # is hardcoded to Postgres's actual in-container listen port (5432),
+    # deliberately decoupled from POSTGRES_PORT in .env, which only controls
+    # the *host*-side published port mapping and could be repointed (e.g. to
+    # avoid a local conflict) without changing what Postgres listens on
+    # inside its own container.
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "${TXN_SERVICE_PORT:-8081}:8081"
     depends_on:
@@ -99,13 +113,32 @@ services:
       context: ../../ml-services/inference-service
       dockerfile: Dockerfile
     env_file: .env
+    # Settings.model_config uses env_prefix="LYNCEUS_INFERENCE_", so the bare
+    # REDIS_* vars in .env don't reach this service's redis_host/redis_port
+    # fields — they need the prefixed names. (Redis is unused by the Phase 1
+    # scoring path itself, but the client is constructed at startup, so it
+    # must still point at the right host on the Compose network.)
+    environment:
+      LYNCEUS_INFERENCE_REDIS_HOST: redis
+      LYNCEUS_INFERENCE_REDIS_PORT: 6379
     ports:
       - "${INFERENCE_SERVICE_PORT:-8082}:8082"
     depends_on:
       redis:
         condition: service_healthy
+    # python:3.12-slim has no wget/curl (unlike the Alpine-based images used
+    # elsewhere), so the healthcheck shells out to Python + httpx instead —
+    # both already runtime dependencies of this service (see pyproject.toml),
+    # matching the HEALTHCHECK already defined in this service's own
+    # Dockerfile (which this compose-level override otherwise shadows).
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/api/v1/scoring/health || exit 1"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; httpx.get('http://localhost:8082/api/v1/scoring/health').raise_for_status()",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -119,6 +152,12 @@ services:
       context: ../../services
       dockerfile: dashboard-bff/Dockerfile
     env_file: .env
+    # Same rationale as transaction-service above: application.yml's Redis
+    # host defaults to `localhost`, which doesn't resolve to anything inside
+    # this container on the Compose network.
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "${BFF_SERVICE_PORT:-8083}:8083"
     depends_on:
@@ -141,13 +180,33 @@ services:
       context: ../../frontend
       dockerfile: apps/dashboard/Dockerfile
     env_file: .env
+    # lib/api.ts's Server Components (overview/transactions pages) fetch the
+    # BFF from inside this container at render time. They must NOT go
+    # through NGINX at http://localhost:8080 (the NEXT_PUBLIC_API_URL
+    # browser default): NGINX's own healthcheck/startup depends on this
+    # frontend container already being healthy, so routing this container's
+    # own SSR fetches back through NGINX would deadlock. INTERNAL_API_URL
+    # (unprefixed, so Next.js never inlines it into the browser bundle) lets
+    # server-side code reach dashboard-bff directly over the Compose
+    # network instead.
+    environment:
+      INTERNAL_API_URL: http://dashboard-bff:8083/api/v1
     ports:
       - "3000:3000"
     depends_on:
       dashboard-bff:
         condition: service_healthy
+    # This image's /etc/hosts (unlike the Alpine JRE images used by the Java
+    # services) lists both an IPv4 and IPv6 loopback entry for `localhost`,
+    # and musl's resolver returns the IPv6 one (::1) first per RFC 6724
+    # address-selection rules — but HOSTNAME=0.0.0.0 above binds Next.js to
+    # the IPv4 wildcard only (confirmed: nothing listens on ::1 inside this
+    # container). `wget http://localhost:3000` therefore hit connection
+    # refused on ::1 even though the server was correctly up and serving
+    # real content on the IPv4 side. Targeting the literal IPv4 loopback
+    # address sidesteps the resolver order entirely.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -176,8 +235,12 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    # Same musl/Alpine `localhost` → ::1 resolution issue as the frontend
+    # service above (this image's /etc/hosts lists an IPv6 loopback entry
+    # too, and nginx.conf's bare `listen 8080;` is IPv4-only) — use the
+    # literal IPv4 loopback address instead of relying on resolver ordering.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

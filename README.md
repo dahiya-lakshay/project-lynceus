@@ -34,19 +34,56 @@ Kafka, Flink, the Autoencoder model, Keycloak, multi-tenancy, and the RAG chatbo
 
 ## Quick Start
 
-Prerequisites: Docker + Docker Compose v2, Java 21 (Temurin), Python 3.12+ with `uv`, Node 22 LTS with `pnpm`.
+Prerequisites: Docker + Docker Compose v2, Java 21 (Temurin), Python 3.12+ with `uv`, Node 22 LTS with `pnpm`. Have at least a few GB of free disk — building all six application images from scratch (Gradle, pnpm, uv) is disk-hungry the first time.
 
 ```bash
-# Infrastructure only (PostgreSQL, Redis)
+# One-time local config — both are git-ignored, checked-in templates exist
+cp infrastructure/docker/.env.example infrastructure/docker/.env
+cp infrastructure/docker/redis/redis.conf.example infrastructure/docker/redis/redis.conf
+
+# Infrastructure only (PostgreSQL + pgvector, Redis)
 make infra-up
 
-# Everything (all services + infrastructure), via Docker Compose
+# Everything (all services + NGINX + frontend), via Docker Compose
 make dev-all
 ```
 
-Then open `http://localhost:8080` for the dashboard (routed through NGINX).
+`make dev-all` builds and starts, in dependency order: `postgres` and `redis` first, then `transaction-service` / `inference-service` / `dashboard-bff` (each waits on its own DB/cache dependencies via Compose healthchecks), then `frontend` (waits on `dashboard-bff`), then `nginx` last (waits on all four application services — NGINX resolves its upstreams once at startup, so every upstream must already be healthy or NGINX exits immediately). A cold first build of all six images typically takes 15-20 minutes, dominated by Gradle resolving dependencies fresh; subsequent builds are much faster via Docker layer caching.
 
-See [`AGENTS.md`](./AGENTS.md) and [`CLAUDE.md`](./CLAUDE.md) for the full set of build, test, lint, and database commands per service.
+Once everything is healthy, open **`http://localhost:8080`** for the dashboard (routed through NGINX) — this is the only port you should need for normal use.
+
+### Verifying it end-to-end
+
+```bash
+# Gateway health
+curl http://localhost:8080/health
+
+# List transactions (paginated)
+curl http://localhost:8080/api/v1/transactions -H "X-Tenant-Id: default"
+
+# The core promise: POST a transaction, get back a real ML fraud score
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: default" \
+  -d '{
+    "customer_id": "550e8400-e29b-41d4-a716-446655440000",
+    "amount": 15000.00,
+    "merchant_name": "Suspicious Electronics Store",
+    "merchant_category": "electronics",
+    "is_online": true,
+    "is_foreign": true,
+    "channel": "online"
+  }'
+# -> 202 Accepted, with a non-null "fraud_score" and "risk_level" in the body
+# (a large, foreign, online electronics purchase should score as high/critical risk)
+
+# Dashboard KPIs
+curl http://localhost:8080/api/v1/dashboard/overview -H "X-Tenant-Id: default"
+```
+
+This has been run end-to-end against a real trained Isolation Forest model and a Postgres volume seeded with ~100K synthetic transactions: the POST above returns a real fraud score (not null/degraded), and `http://localhost:8080/overview` and `/transactions` render actual KPI cards, charts, and a risk-level-badged data table with that seeded data through NGINX — not placeholder pages. Note that `/api/v1/dashboard/overview` is cached in Redis for 30s (cache-aside, no write-invalidation), so a GET immediately after a POST can briefly show pre-insert numbers; it reflects the new data once the TTL expires.
+
+See [`AGENTS.md`](./AGENTS.md) and [`CLAUDE.md`](./CLAUDE.md) for the full set of build, test, lint, and database commands per service, [`api-specs/`](./api-specs/) for the OpenAPI contracts each service implements, [`docs/BRD_specs.md`](./docs/BRD_specs.md) for the full target architecture, and [`docs/implementation_plan_phase-1.md`](./docs/implementation_plan_phase-1.md) for the phase-by-phase build plan.
 
 ---
 

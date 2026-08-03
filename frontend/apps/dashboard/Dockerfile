@@ -23,4 +23,12 @@ COPY --from=builder /app/apps/dashboard/public ./apps/dashboard/public
 USER lynceus
 EXPOSE 3000
 ENV PORT=3000
+# Next.js standalone output binds to $HOSTNAME if set, defaulting to 0.0.0.0
+# otherwise — but Docker auto-injects HOSTNAME=<container-id> into every
+# container's environment, which the standalone server then resolves and
+# binds to instead of the wildcard address. Without this override, the
+# server only accepts connections on the container's own IP, so
+# `wget http://localhost:3000` (our healthcheck, and any other same-host
+# caller) gets connection refused even though the process is up and ready.
+ENV HOSTNAME="0.0.0.0"
 ENTRYPOINT ["node", "apps/dashboard/server.js"]
