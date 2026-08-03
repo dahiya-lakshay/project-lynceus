@@ -196,8 +196,17 @@ services:
     depends_on:
       dashboard-bff:
         condition: service_healthy
+    # This image's /etc/hosts (unlike the Alpine JRE images used by the Java
+    # services) lists both an IPv4 and IPv6 loopback entry for `localhost`,
+    # and musl's resolver returns the IPv6 one (::1) first per RFC 6724
+    # address-selection rules — but HOSTNAME=0.0.0.0 above binds Next.js to
+    # the IPv4 wildcard only (confirmed: nothing listens on ::1 inside this
+    # container). `wget http://localhost:3000` therefore hit connection
+    # refused on ::1 even though the server was correctly up and serving
+    # real content on the IPv4 side. Targeting the literal IPv4 loopback
+    # address sidesteps the resolver order entirely.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
