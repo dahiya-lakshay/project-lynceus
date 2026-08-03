@@ -42,11 +42,20 @@ info:
     either as a `token` query parameter
     (`/ws/v1/dashboard/live-feed?token=<jwt>`) or as the WebSocket
     subprotocol (`Sec-WebSocket-Protocol: bearer.<jwt>`) — client's choice,
-    the BFF accepts either. The BFF validates the JWT exactly as it would for
-    a REST request and derives `tenant_id` from its claims; a connection with
-    a missing, expired, or invalid token is rejected during the handshake
-    (HTTP 401 before the upgrade completes), the WebSocket equivalent of this
-    spec's `Unauthorized` response.
+    the BFF accepts either, but the two options are not equally safe by
+    default: a query-param token is a well-known leak vector (query strings
+    routinely land in NGINX/BFF access logs, browser history, and proxy
+    caches), so if the query-param option is used, the token MUST be
+    scrubbed from NGINX's and the BFF's access logs (e.g. NGINX
+    `$request_uri` field masking, or logging only the path) — this is the
+    standard mitigation for this pattern and is non-negotiable for a
+    production-grade platform handling financial data. The subprotocol
+    option avoids this exposure entirely since it isn't part of the request
+    URI. The BFF validates the JWT exactly as it would for a REST request and
+    derives `tenant_id` from its claims; a connection with a missing,
+    expired, or invalid token is rejected during the handshake (HTTP 401
+    before the upgrade completes), the WebSocket equivalent of this spec's
+    `Unauthorized` response.
 
 
     **Message shape**: this is a server-push-only protocol — the client
