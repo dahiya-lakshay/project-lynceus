@@ -12,6 +12,53 @@ info:
     Backend-for-frontend aggregating transaction and fraud-scoring data for
     the tenant-facing fraud analyst dashboard. Every request is scoped to a
     single tenant via the X-Tenant-Id header.
+
+
+    ## Live Feed (WebSocket)
+
+
+    In addition to the REST endpoints documented below, the BFF exposes a
+    WebSocket endpoint at `/ws/v1/dashboard/live-feed`
+    (`ws://localhost:8083/ws/v1/dashboard/live-feed` locally; `wss://` in any
+    non-local environment) that drives the dashboard's real-time transaction
+    feed. OpenAPI 3.1 has no native way to model a WebSocket contract as a
+    `paths` entry, so it's documented here in prose rather than introducing a
+    second spec format (e.g. AsyncAPI) for a single endpoint — this is still
+    the only asynchronous contract anywhere in the system, and a second
+    tool/format isn't worth the overhead yet. Revisit this decision if a
+    second WebSocket/SSE endpoint appears.
+
+
+    **Why WebFlux for this service**: the BFF is the only Phase 2 service
+    built on Spring WebFlux rather than Spring MVC + virtual threads,
+    specifically so this endpoint can hold many concurrent long-lived
+    connections efficiently — Transaction/Alert/Customer services have no
+    server-push requirement and stay on the simpler MVC + virtual-threads
+    model.
+
+
+    **Connecting**: browsers cannot set arbitrary headers on a WebSocket
+    handshake, so the same Bearer JWT used for REST calls is instead passed
+    either as a `token` query parameter
+    (`/ws/v1/dashboard/live-feed?token=<jwt>`) or as the WebSocket
+    subprotocol (`Sec-WebSocket-Protocol: bearer.<jwt>`) — client's choice,
+    the BFF accepts either. The BFF validates the JWT exactly as it would for
+    a REST request and derives `tenant_id` from its claims; a connection with
+    a missing, expired, or invalid token is rejected during the handshake
+    (HTTP 401 before the upgrade completes), the WebSocket equivalent of this
+    spec's `Unauthorized` response.
+
+
+    **Message shape**: this is a server-push-only protocol — the client
+    sends no application-level messages after connecting (only WebSocket
+    ping/pong for keep-alive). For every `fraud.scored` Kafka event the BFF
+    consumes whose `tenant_id` matches the connected client's tenant, the BFF
+    pushes a single text frame containing that event's JSON body, shaped
+    exactly like the shared `FraudScoredEvent` schema (see
+    `api-specs/shared/schemas/events.yaml#/FraudScoredEvent`, reused verbatim
+    rather than redefined here so the Kafka contract and the WebSocket
+    contract can never drift apart). Events for other tenants are never sent
+    to a client scoped to a different tenant.
 servers:
   - url: http://localhost:8083
     description: Local development
@@ -193,6 +240,11 @@ components:
       $ref: './shared/schemas/transaction.yaml#/TransactionSummary'
     ErrorResponse:
       $ref: './shared/errors.yaml#/ErrorResponse'
+    # Not used by any REST path below — declared here so the WebSocket live
+    # feed's message shape (see info.description above) is a formal, checkable
+    # part of this spec rather than only described in prose.
+    FraudScoredEvent:
+      $ref: './shared/schemas/events.yaml#/FraudScoredEvent'
 
     DashboardOverview:
       type: object
