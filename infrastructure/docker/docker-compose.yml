@@ -77,6 +77,20 @@ services:
       context: ../../services
       dockerfile: transaction-service/Dockerfile
     env_file: .env
+    # application.yml's datasource/redis URLs default to `localhost` for the
+    # bare `./gradlew bootRun` local-dev path (where infra ports are
+    # published to the host). On the Compose network there is no localhost
+    # Postgres/Redis — the container must reach them by service name. Port
+    # is hardcoded to Postgres's actual in-container listen port (5432),
+    # deliberately decoupled from POSTGRES_PORT in .env, which only controls
+    # the *host*-side published port mapping and could be repointed (e.g. to
+    # avoid a local conflict) without changing what Postgres listens on
+    # inside its own container.
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "${TXN_SERVICE_PORT:-8081}:8081"
     depends_on:
@@ -99,6 +113,14 @@ services:
       context: ../../ml-services/inference-service
       dockerfile: Dockerfile
     env_file: .env
+    # Settings.model_config uses env_prefix="LYNCEUS_INFERENCE_", so the bare
+    # REDIS_* vars in .env don't reach this service's redis_host/redis_port
+    # fields — they need the prefixed names. (Redis is unused by the Phase 1
+    # scoring path itself, but the client is constructed at startup, so it
+    # must still point at the right host on the Compose network.)
+    environment:
+      LYNCEUS_INFERENCE_REDIS_HOST: redis
+      LYNCEUS_INFERENCE_REDIS_PORT: 6379
     ports:
       - "${INFERENCE_SERVICE_PORT:-8082}:8082"
     depends_on:
@@ -119,6 +141,12 @@ services:
       context: ../../services
       dockerfile: dashboard-bff/Dockerfile
     env_file: .env
+    # Same rationale as transaction-service above: application.yml's Redis
+    # host defaults to `localhost`, which doesn't resolve to anything inside
+    # this container on the Compose network.
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "${BFF_SERVICE_PORT:-8083}:8083"
     depends_on:
@@ -141,6 +169,17 @@ services:
       context: ../../frontend
       dockerfile: apps/dashboard/Dockerfile
     env_file: .env
+    # lib/api.ts's Server Components (overview/transactions pages) fetch the
+    # BFF from inside this container at render time. They must NOT go
+    # through NGINX at http://localhost:8080 (the NEXT_PUBLIC_API_URL
+    # browser default): NGINX's own healthcheck/startup depends on this
+    # frontend container already being healthy, so routing this container's
+    # own SSR fetches back through NGINX would deadlock. INTERNAL_API_URL
+    # (unprefixed, so Next.js never inlines it into the browser bundle) lets
+    # server-side code reach dashboard-bff directly over the Compose
+    # network instead.
+    environment:
+      INTERNAL_API_URL: http://dashboard-bff:8083/api/v1
     ports:
       - "3000:3000"
     depends_on:
